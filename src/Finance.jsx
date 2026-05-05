@@ -54,15 +54,15 @@ async function apiFetch(path, opts={}) {
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       ...opts,
     });
+    const data = await res.json();
     if (!res.ok) {
-      const errText = await res.text();
-      console.error('API error', res.status, errText);
-      return null;
+      console.error('API error', res.status, data);
+      return {ok: false, error: data?.error || res.status};
     }
-    return await res.json();
+    return data;
   } catch(e) {
     console.error('API fetch error:', e);
-    return null;
+    return {ok: false, error: e.message};
   }
 }
 
@@ -486,7 +486,19 @@ export default function Finance({onBack}) {
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [apiReady, setApiReady] = useState(false);
+  const [incomeSources, setIncomeSources] = useState([
+    {id:'1', description:'Ed - RenaissanceTech', amount:6702.82, frequency:'monthly'},
+    {id:'2', description:'Ed - NDDPRINT', amount:2094.17, frequency:'monthly'},
+    {id:'3', description:'Nataly - IDEXX', amount:1906.10, frequency:'biweekly'},
+  ]);
   const inputRef = useRef();
+
+  // Compute total monthly income from sources
+  const computedIncome = incomeSources.reduce((sum, s) => {
+    if (s.frequency === 'biweekly') return sum + (s.amount * 26 / 12);
+    if (s.frequency === 'weekly') return sum + (s.amount * 52 / 12);
+    return sum + s.amount;
+  }, 0);
   const cameraRef = useRef();
 
   // Simple paste zone component inline
