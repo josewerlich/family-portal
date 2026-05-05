@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import ImageInput from "./ImageInput.jsx";
 
 const API = "https://api.familyfinances.uk";
 
@@ -359,12 +360,13 @@ function AddDebtModal({onAdd, onClose}) {
 
         {mode==="ai"&&(
           <div>
-            <input ref={fileRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
-            <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${C.border2}`,borderRadius:16,padding:"40px 24px",textAlign:"center",cursor:"pointer",background:C.surface2}}>
-              {loading
-                ? <div><div style={{fontSize:28,marginBottom:8}}>⏳</div><div style={{fontSize:13,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Reading document with AI...</div></div>
-                : <div><div style={{fontSize:36,marginBottom:10}}>📸</div><div style={{fontSize:14,fontWeight:600,color:C.text,fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>Take a photo or upload a file</div><div style={{fontSize:12,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Loan statement, credit card bill, or any document showing debt details</div></div>}
-            </div>
+            {loading
+              ? <div style={{border:`2px dashed ${C.border2}`,borderRadius:16,padding:"40px 24px",textAlign:"center",background:C.surface2}}>
+                  <div style={{fontSize:28,marginBottom:8}}>⏳</div>
+                  <div style={{fontSize:13,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Reading document with AI...</div>
+                </div>
+              : <ImageInput compact={true} onFiles={files=>files[0]&&handleFile(files[0])} accept="image/*,.pdf" multiple={false}/>
+            }
             <button onClick={()=>setMode("manual")} style={{width:"100%",marginTop:12,padding:"10px",background:"none",border:`1px solid ${C.border}`,borderRadius:12,color:C.text2,fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>Fill in manually instead</button>
           </div>
         )}
@@ -794,11 +796,10 @@ export default function Finance({onBack}) {
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"24px",boxShadow:C.shadow,border:`2px solid ${C.terra}`,marginBottom:16}}>
             <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:4}}>Upload Files</div>
             <div style={{fontSize:12,color:C.text3,marginBottom:16,lineHeight:1.6}}>Chase CSV, PNC CSV, PDF statements, or receipt photos. Debt payments will be automatically detected.</div>
-            <input ref={inputRef} type="file" multiple accept=".csv,.pdf,image/*" style={{display:"none"}} onChange={e=>processFiles(Array.from(e.target.files))}/>
-            <button onClick={()=>inputRef.current.click()} disabled={loading}
-              style={{width:"100%",background:loading?C.surface2:C.terra,color:loading?C.text3:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:14,fontWeight:600,cursor:loading?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all .2s"}}>
-              {loading?"Parsing your files...":"Choose Files to Upload"}
-            </button>
+            {loading
+              ? <div style={{textAlign:"center",padding:"20px",color:C.text3,fontFamily:"'DM Sans',sans-serif",fontSize:13}}>⏳ Parsing your files...</div>
+              : <ImageInput onFiles={processFiles} accept=".csv,.pdf,image/*" multiple={true}/>
+            }
           </div>
 
           {log.length>0&&<div style={{background:C.surface,borderRadius:16,padding:mobile?"14px":"16px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:16}}>
