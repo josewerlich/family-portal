@@ -44,6 +44,23 @@ async function ensureUser(db, email) {
 
 export default {
   async fetch(request, env) {
+    try {
+      return await handleRequest(request, env);
+    } catch(e) {
+      return new Response(JSON.stringify({error: e.message, stack: e.stack}), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+        }
+      });
+    }
+  }
+};
+
+async function handleRequest(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -190,6 +207,5 @@ export default {
       return json((months.results||[]).map(m=>m.month_key));
     }
     return err('Not found', 404);
-  }
-};
+}
 // deployed Tue May  5 21:42:20 UTC 2026
