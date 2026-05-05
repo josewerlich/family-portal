@@ -533,10 +533,14 @@ export default function Finance({onBack}) {
   };
 
   const loadTransactions = async () => {
-    const data = await apiFetch(`/api/transactions?month=${monthKey}`);
-    console.log('Loaded transactions:', data?.length, 'for', monthKey);
-    if (Array.isArray(data)) setTxs(data);
+    const [txData, monthData] = await Promise.all([
+      apiFetch(`/api/transactions?month=${monthKey}`),
+      apiFetch(`/api/monthly?month=${monthKey}`),
+    ]);
+    if (Array.isArray(txData)) setTxs(txData);
     else setTxs([]);
+    // Load month-specific income if available
+    if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
