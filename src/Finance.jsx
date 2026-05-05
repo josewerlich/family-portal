@@ -50,7 +50,6 @@ function useIsMobile(){const[m,setM]=useState(window.innerWidth<768);useEffect((
 async function apiFetch(path, opts={}) {
   try {
     const res = await fetch(`${API}${path}`, {
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       ...opts,
     });
