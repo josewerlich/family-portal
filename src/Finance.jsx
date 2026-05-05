@@ -149,8 +149,14 @@ async function parseWithClaude(fileData, fileType, mode='transactions') {
     sys = `You are a financial document parser. Extract loan/debt details from this document. Return ONLY a JSON object with: {"name":"loan name","balance":number,"original_balance":number,"payment":number,"rate":number,"deadline":"MMM YYYY or ongoing","deadline_date":"YYYY-MM-DD or null","type":"loan or deferred or promo","note":"brief description"}`;
     userMsg = "Extract the loan/debt details from this document.";
   } else {
-    sys = `Parse financial transactions. Return ONLY a JSON array. Each: {"date":"MM/DD","merchant":"name","amount":number,"category":"one of [${cats}]","source":"Chase or PNC"}. Expenses only, positive amounts only.`;
-    userMsg = "Parse all expense transactions.";
+    sys = `Parse financial transactions from this bank statement. Return ONLY a JSON array. Each item must have:
+{"date":"MM/DD","merchant":"name","amount":number,"category":"one of [${cats}]","source":"Chase or PNC","type":"expense or income"}
+Rules:
+- Expenses (withdrawals, payments, purchases): positive amount, type="expense"
+- Income (deposits, payroll, direct deposit, transfers IN): positive amount, type="income", category="other"
+- Skip internal transfers between accounts
+- Include ALL transactions`;
+    userMsg = "Parse all transactions including income deposits and expenses.";
   }
 
   // Normalize file type — Claude only supports jpeg/png/gif/webp
@@ -609,26 +615,51 @@ export default function Finance({onBack}) {
       } catch(err) { l.push(`✗ ${file.name}: ${err.message}`); setLog([...l]); }
     }
     if (newTxs.length > 0) {
-      // Group transactions by their actual month
+      // Separate income from expenses
+      const incomeTxs = newTxs.filter(t => t.type === 'income');
+      const expenseTxs = newTxs.filter(t => t.type !== 'income');
+
+      // Group expenses by their actual month
       const byMonth = {};
-      for (const tx of newTxs) {
-        // tx.date is MM/DD — use selected year as base
-        const [mm, dd] = (tx.date || '01/01').split('/');
-        const month = parseInt(mm);
-        const key = `${selectedYear}-${String(month).padStart(2,'0')}`;
+      const incomeByMonth = {};
+      for (const tx of expenseTxs) {
+        const [mm] = (tx.date || '01/01').split('/');
+        const key = `${selectedYear}-${String(parseInt(mm)).padStart(2,'0')}`;
         if (!byMonth[key]) byMonth[key] = [];
         byMonth[key].push(tx);
       }
-      const monthKeys = Object.keys(byMonth);
-      l.push(`Saving to ${monthKeys.length} month(s): ${monthKeys.join(', ')}`); setLog([...l]);
-      for (const [key, txs] of Object.entries(byMonth)) {
-        const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(txs)});
-        l.push(saveRes?.ok ? `✓ Saved ${txs.length} txns to ${key}` : `✗ Save failed for ${key}: ${JSON.stringify(saveRes)}`); setLog([...l]);
+      for (const tx of incomeTxs) {
+        const [mm] = (tx.date || '01/01').split('/');
+        const key = `${selectedYear}-${String(parseInt(mm)).padStart(2,'0')}`;
+        if (!incomeByMonth[key]) incomeByMonth[key] = 0;
+        incomeByMonth[key] += tx.amount;
       }
+
+      const monthKeys = [...new Set([...Object.keys(byMonth), ...Object.keys(incomeByMonth)])];
+      l.push(`Saving to ${monthKeys.length} month(s): ${monthKeys.join(', ')}`); setLog([...l]);
+
+      for (const key of monthKeys) {
+        // Save expenses
+        if (byMonth[key]?.length > 0) {
+          const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(byMonth[key])});
+          l.push(saveRes?.ok ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}`); setLog([...l]);
+        }
+        // Save income as monthly setting
+        if (incomeByMonth[key] > 0) {
+          await apiFetch(`/api/monthly?month=${key}`, {method:'PUT', body:JSON.stringify({income: incomeByMonth[key]})});
+          l.push(`✓ Income set to ${fmt(incomeByMonth[key])} for ${key}`); setLog([...l]);
+        }
+      }
+
+      // Update current month income if detected
+      if (incomeByMonth[monthKey]) {
+        setIncome(incomeByMonth[monthKey]);
+      }
+
       await loadTransactions();
       l.push(`✓ Dashboard updated`); setLog([...l]);
       if (debts.length > 0) {
-        const matches = detectDebtPayments(newTxs, debts);
+        const matches = detectDebtPayments(expenseTxs, debts);
         if (matches.length > 0) setDebtPaymentMatches(matches);
       }
     } else {
