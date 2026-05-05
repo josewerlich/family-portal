@@ -646,7 +646,7 @@ export default function Finance({onBack}) {
         // Save expenses
         if (byMonth[key]?.length > 0) {
           const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(byMonth[key])});
-          l.push(saveRes?.ok ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}`); setLog([...l]);
+          l.push(saveRes?.ok ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}: ${JSON.stringify(saveRes)}`); setLog([...l]);
         }
         // Save income as monthly setting
         if (incomeByMonth[key] > 0) {

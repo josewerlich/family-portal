@@ -83,7 +83,13 @@ export default {
     try { await initDB(env.DB); } catch(e) {}
 
     const user = getUser(request);
-    if (!user) return err('Unauthorized', 401);
+    if (!user) {
+      // Return helpful error with CORS headers so frontend can read it
+      return new Response(JSON.stringify({
+        error: 'Unauthorized',
+        hint: 'Make sure you are logged in via Cloudflare Access at finance.familyfinances.uk'
+      }), { status: 401, headers: CORS });
+    }
     await ensureUser(env.DB, user);
 
     if (path === '/api/user' && method === 'GET') {
