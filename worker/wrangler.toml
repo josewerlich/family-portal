@@ -1,0 +1,8 @@
+name = "finance-api"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "finance-portal"
+database_id = "df79d659-f890-43d1-9e0d-120db3a6d39d"
