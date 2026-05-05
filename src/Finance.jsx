@@ -906,9 +906,40 @@ export default function Finance({onBack}) {
           <div style={{fontSize:13,color:C.text3,marginBottom:20}}>CSV files parse instantly. PDFs and photos use AI. Bank payments matching your debts will be detected automatically.</div>
 
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:16}}>
-            <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:8}}>Monthly Income</div>
-            <input type="number" value={income} onChange={e=>updateIncome(parseFloat(e.target.value))}
-              style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,padding:"10px 14px",fontSize:15,fontWeight:600,width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Income Sources</div>
+                <div style={{fontSize:11,color:C.text3,marginTop:2}}>Total: <strong style={{color:C.green}}>{fmt(computedIncome)}/mo</strong></div>
+              </div>
+              <button onClick={()=>setIncomeSources(p=>[...p,{id:Date.now().toString(),description:"",amount:0,frequency:"monthly"}])}
+                style={{background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                + Add
+              </button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 110px 100px 28px",gap:8,marginBottom:6}}>
+              {["Description","Amount","Frequency",""].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
+            </div>
+            {incomeSources.map((src,i)=>(
+              <div key={src.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 100px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
+                <input value={src.description} onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,description:e.target.value}:s))}
+                  placeholder="e.g. Ed - RenaissanceTech"
+                  style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
+                <input type="number" value={src.amount} onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,amount:parseFloat(e.target.value)||0}:s))}
+                  style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
+                <select value={src.frequency} onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,frequency:e.target.value}:s))}
+                  style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 4px",fontSize:11,width:"100%",boxSizing:"border-box"}}>
+                  <option value="monthly">Monthly</option>
+                  <option value="biweekly">Biweekly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+                <button onClick={()=>setIncomeSources(p=>p.filter((_,j)=>j!==i))}
+                  style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:0}}>✕</button>
+              </div>
+            ))}
+            <button onClick={async()=>updateIncome(computedIncome)}
+              style={{width:"100%",marginTop:6,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+              Save — {fmt(computedIncome)}/mo
+            </button>
           </div>
 
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"24px",boxShadow:C.shadow,border:`2px solid ${C.terra}`,marginBottom:16}}>
