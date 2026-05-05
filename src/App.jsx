@@ -37,7 +37,7 @@ function Home({ setPage }) {
         </button>
       </div>
 
-      <p style={{ color:"#D4CFC8", fontSize:12, marginTop:40, fontFamily:"'DM Sans',sans-serif" }}>familyfinances.uk</p>
+      <p style={{ color:"#D4CFC8", fontSize:12, marginTop:40, fontFamily:"'DM Sans',sans-serif" }}>familyfinances.uk · v1.0.12</p>
     </div>
   );
 }
