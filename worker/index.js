@@ -1,7 +1,8 @@
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type,CF-Access-Authenticated-User-Email,X-User-Email',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Max-Age': '86400',
   'Content-Type': 'application/json',
 };
 
