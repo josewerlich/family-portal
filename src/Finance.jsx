@@ -50,13 +50,18 @@ function useIsMobile(){const[m,setM]=useState(window.innerWidth<768);useEffect((
 async function apiFetch(path, opts={}) {
   try {
     const res = await fetch(`${API}${path}`, {
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       ...opts,
     });
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('API error', res.status, errText);
+      return null;
+    }
     return await res.json();
   } catch(e) {
-    console.error('API error:', e);
+    console.error('API fetch error:', e);
     return null;
   }
 }
@@ -517,13 +522,15 @@ export default function Finance({onBack}) {
       apiFetch('/api/debts'),
     ]);
     if (userData) setIncome(userData.income || 0);
-    if (debtData) setDebts(debtData);
+    if (Array.isArray(debtData)) setDebts(debtData);
     setApiReady(true);
   };
 
   const loadTransactions = async () => {
     const data = await apiFetch(`/api/transactions?month=${monthKey}`);
-    if (data) setTxs(data);
+    console.log('Loaded transactions:', data?.length, 'for', monthKey);
+    if (Array.isArray(data)) setTxs(data);
+    else setTxs([]);
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
