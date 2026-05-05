@@ -602,13 +602,17 @@ export default function Finance({onBack}) {
       } catch(err) { l.push(`✗ ${file.name}: ${err.message}`); setLog([...l]); }
     }
     if (newTxs.length > 0) {
-      await apiFetch(`/api/transactions?month=${monthKey}`, {method:'POST', body:JSON.stringify(newTxs)});
+      l.push(`Saving ${newTxs.length} txns to ${monthKey}...`); setLog([...l]);
+      const saveRes = await apiFetch(`/api/transactions?month=${monthKey}`, {method:'POST', body:JSON.stringify(newTxs)});
+      l.push(saveRes?.ok ? `✓ Saved successfully` : `✗ Save failed: ${JSON.stringify(saveRes)}`); setLog([...l]);
       await loadTransactions();
-      // Detect debt payments
+      l.push(`✓ Dashboard updated`); setLog([...l]);
       if (debts.length > 0) {
         const matches = detectDebtPayments(newTxs, debts);
         if (matches.length > 0) setDebtPaymentMatches(matches);
       }
+    } else {
+      l.push('⚠ No transactions extracted from file'); setLog([...l]);
     }
     setLoading(false);
   };
