@@ -655,10 +655,17 @@ export default function Finance({onBack}) {
       l.push(`Saving to ${monthKeys.length} month(s): ${monthKeys.join(', ')}`); setLog([...l]);
 
       for (const key of monthKeys) {
-        // Save expenses
+        // Save expenses in batches of 10 to avoid payload limits
         if (byMonth[key]?.length > 0) {
-          const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(byMonth[key])});
-          l.push(saveRes?.ok ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}: ${JSON.stringify(saveRes)}`); setLog([...l]);
+          const batch = byMonth[key];
+          const BATCH_SIZE = 10;
+          let allOk = true;
+          for (let b = 0; b < batch.length; b += BATCH_SIZE) {
+            const chunk = batch.slice(b, b + BATCH_SIZE);
+            const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(chunk)});
+            if (!saveRes?.ok) { allOk = false; break; }
+          }
+          l.push(allOk ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}`); setLog([...l]);
         }
         // Save income as monthly setting
         if (incomeByMonth[key] > 0) {
