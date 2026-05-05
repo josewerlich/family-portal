@@ -162,7 +162,7 @@ async function parseWithClaude(fileData, fileType, mode='transactions') {
   const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:sys,messages:[{role:"user",content:msgContent}]})
+    body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:sys,messages:[{role:"user",content:msgContent}]})
   });
 
   if (!res.ok) throw new Error(`Proxy ${res.status}: ${(await res.text()).slice(0,150)}`);
