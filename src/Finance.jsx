@@ -298,6 +298,7 @@ function AddDebtModal({onAdd, onClose}) {
   const [extracted, setExtracted] = useState(null);
   const [form, setForm] = useState({name:"",balance:"",payment:"",rate:"",deadline:"ongoing",deadline_date:"",note:""});
   const fileRef = useRef();
+  const camRef = useRef();
 
   const handleFile = async (file) => {
     setLoading(true);
@@ -359,15 +360,29 @@ function AddDebtModal({onAdd, onClose}) {
         </div>
 
         {mode==="ai"&&(
-          <div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <input ref={fileRef} type="file" accept="image/*,.pdf,.png,.jpg,.jpeg,.heic" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
+            <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
             {loading
-              ? <div style={{border:`2px dashed ${C.border2}`,borderRadius:16,padding:"40px 24px",textAlign:"center",background:C.surface2}}>
+              ? <div style={{border:`2px dashed ${C.border2}`,borderRadius:16,padding:"32px",textAlign:"center",background:C.surface2}}>
                   <div style={{fontSize:28,marginBottom:8}}>⏳</div>
-                  <div style={{fontSize:13,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Reading document with AI...</div>
+                  <div style={{fontSize:13,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Reading with AI...</div>
                 </div>
-              : <ImageInput compact={true} onFiles={files=>files[0]&&handleFile(files[0])} accept="image/*,.pdf" multiple={false}/>
-            }
-            <button onClick={()=>setMode("manual")} style={{width:"100%",marginTop:12,padding:"10px",background:"none",border:`1px solid ${C.border}`,borderRadius:12,color:C.text2,fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>Fill in manually instead</button>
+              : <>
+                  <button onClick={()=>camRef.current.click()} style={{width:"100%",padding:"14px",borderRadius:12,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    📷 Take Photo of Loan Statement
+                  </button>
+                  <button onClick={()=>fileRef.current.click()} style={{width:"100%",padding:"14px",borderRadius:12,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    🖼️ Choose from Gallery (PNG, JPG, PDF)
+                  </button>
+                  <div style={{border:`2px dashed ${C.terra}`,borderRadius:12,padding:"14px",textAlign:"center",background:C.terra3,cursor:"text",outline:"none",fontFamily:"'DM Sans',sans-serif"}}
+                    tabIndex={0}
+                    onPaste={e=>{const files=Array.from(e.clipboardData?.items||[]).filter(i=>i.kind==="file").map(i=>i.getAsFile()).filter(Boolean);if(files.length>0){e.preventDefault();handleFile(files[0]);}}}>
+                    <span style={{fontSize:16,marginRight:6}}>📋</span>
+                    <span style={{fontSize:13,color:C.terra,fontWeight:600}}>Tap here → long press → Paste</span>
+                  </div>
+                </>}
+            <button onClick={()=>setMode("manual")} style={{width:"100%",padding:"10px",background:"none",border:`1px solid ${C.border}`,borderRadius:12,color:C.text2,fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>Fill in manually instead</button>
           </div>
         )}
 
@@ -452,6 +467,29 @@ export default function Finance({onBack}) {
   const [dragOverId, setDragOverId] = useState(null);
   const [apiReady, setApiReady] = useState(false);
   const inputRef = useRef();
+  const cameraRef = useRef();
+
+  // Simple paste zone component inline
+  function PasteZone({onFiles}) {
+    const ref = useRef();
+    useEffect(()=>{
+      const el = ref.current;
+      if (!el) return;
+      const h = (e) => {
+        const files = Array.from(e.clipboardData?.items||[]).filter(i=>i.kind==="file").map(i=>i.getAsFile()).filter(Boolean);
+        if (files.length > 0) { e.preventDefault(); onFiles(files); }
+      };
+      el.addEventListener("paste", h);
+      return () => el.removeEventListener("paste", h);
+    }, [onFiles]);
+    return (
+      <div ref={ref} tabIndex={0} style={{border:`2px dashed ${C.terra}`,borderRadius:12,padding:"16px",textAlign:"center",background:C.terra3,cursor:"text",outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+        <span style={{fontSize:18,marginRight:8}}>📋</span>
+        <span style={{fontSize:13,color:C.terra,fontWeight:600}}>Tap here → long press → Paste</span>
+        <div style={{fontSize:11,color:C.text3,marginTop:4}}>For screenshots copied on iPhone</div>
+      </div>
+    );
+  }
 
   const monthKey = `${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}`;
 
@@ -795,10 +833,20 @@ export default function Finance({onBack}) {
 
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"24px",boxShadow:C.shadow,border:`2px solid ${C.terra}`,marginBottom:16}}>
             <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:4}}>Upload Files</div>
-            <div style={{fontSize:12,color:C.text3,marginBottom:16,lineHeight:1.6}}>Chase CSV, PNC CSV, PDF statements, or receipt photos. Debt payments will be automatically detected.</div>
+            <div style={{fontSize:12,color:C.text3,marginBottom:16,lineHeight:1.6}}>Supports CSV, PDF, PNG, JPG, HEIC — any bank statement or receipt photo.</div>
+            <input ref={inputRef} type="file" multiple accept=".csv,.pdf,.png,.jpg,.jpeg,.heic,image/*" style={{display:"none"}} onChange={e=>processFiles(Array.from(e.target.files))}/>
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>processFiles(Array.from(e.target.files))}/>
             {loading
               ? <div style={{textAlign:"center",padding:"20px",color:C.text3,fontFamily:"'DM Sans',sans-serif",fontSize:13}}>⏳ Parsing your files...</div>
-              : <ImageInput onFiles={processFiles} accept=".csv,.pdf,image/*" multiple={true}/>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <button onClick={()=>inputRef.current.click()} style={{width:"100%",background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    📁 Choose Files (CSV, PDF, PNG, JPG)
+                  </button>
+                  <button onClick={()=>cameraRef.current.click()} style={{width:"100%",background:C.surface2,color:C.text,border:`1px solid ${C.border2}`,borderRadius:12,padding:"14px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    📷 Take Photo
+                  </button>
+                  <PasteZone onFiles={processFiles}/>
+                </div>
             }
           </div>
 
