@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ImageInput from "./ImageInput.jsx";
 
-const API = "https://api.familyfinances.uk";
+const API = "";  // Same domain proxy via /api/* Pages Function
 
 const C = {
   bg:"#F7F4F0", surface:"#FFFFFF", surface2:"#F0EDE8", border:"#E8E2D9", border2:"#D4CFC8",
