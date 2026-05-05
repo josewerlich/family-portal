@@ -1,18 +1,13 @@
-function getCORS(request) {
-  const origin = request?.headers?.get('Origin') || '*';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Max-Age': '86400',
-    'Access-Control-Allow-Credentials': 'true',
-    'Content-Type': 'application/json',
-  };
-}
-const CORS = getCORS(null);
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Max-Age': '86400',
+  'Content-Type': 'application/json',
+};
 
-function json(data, status=200) { return new Response(JSON.stringify(data), {status, headers:{...getCORS(request),"Content-Type":"application/json"}}); }
-function err(msg, status=400) { return new Response(JSON.stringify({error:msg}), {status, headers:{...getCORS(request),"Content-Type":"application/json"}}); }
+function json(data, status=200) { return new Response(JSON.stringify(data), {status, headers:CORS}); }
+function err(msg, status=400) { return new Response(JSON.stringify({error:msg}), {status, headers:CORS}); }
 function getUser(request) {
   // Cloudflare Access sets this header after authentication
   const cfEmail = request.headers.get('CF-Access-Authenticated-User-Email');
