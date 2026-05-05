@@ -609,9 +609,22 @@ export default function Finance({onBack}) {
       } catch(err) { l.push(`✗ ${file.name}: ${err.message}`); setLog([...l]); }
     }
     if (newTxs.length > 0) {
-      l.push(`Saving ${newTxs.length} txns to ${monthKey}...`); setLog([...l]);
-      const saveRes = await apiFetch(`/api/transactions?month=${monthKey}`, {method:'POST', body:JSON.stringify(newTxs)});
-      l.push(saveRes?.ok ? `✓ Saved successfully` : `✗ Save failed: ${JSON.stringify(saveRes)}`); setLog([...l]);
+      // Group transactions by their actual month
+      const byMonth = {};
+      for (const tx of newTxs) {
+        // tx.date is MM/DD — use selected year as base
+        const [mm, dd] = (tx.date || '01/01').split('/');
+        const month = parseInt(mm);
+        const key = `${selectedYear}-${String(month).padStart(2,'0')}`;
+        if (!byMonth[key]) byMonth[key] = [];
+        byMonth[key].push(tx);
+      }
+      const monthKeys = Object.keys(byMonth);
+      l.push(`Saving to ${monthKeys.length} month(s): ${monthKeys.join(', ')}`); setLog([...l]);
+      for (const [key, txs] of Object.entries(byMonth)) {
+        const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(txs)});
+        l.push(saveRes?.ok ? `✓ Saved ${txs.length} txns to ${key}` : `✗ Save failed for ${key}: ${JSON.stringify(saveRes)}`); setLog([...l]);
+      }
       await loadTransactions();
       l.push(`✓ Dashboard updated`); setLog([...l]);
       if (debts.length > 0) {
