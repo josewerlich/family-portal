@@ -158,15 +158,16 @@ async function parseWithClaude(fileData, fileType, mode='transactions') {
     ? [{type:"image",source:{type:"base64",media_type:mediaType,data:fileData}},{type:"text",text:userMsg}]
     : [{type:"document",source:{type:"base64",media_type:"application/pdf",data:fileData}},{type:"text",text:userMsg}];
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  // Call via Worker proxy to avoid CORS issues
+  const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:sys,messages:[{role:"user",content:msgContent}]})
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0,150)}`);
+  if (!res.ok) throw new Error(`Proxy ${res.status}: ${(await res.text()).slice(0,150)}`);
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
   const text = data.content?.find(b=>b.type==="text")?.text || (mode==="debt"?"{}":"[]");
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
