@@ -486,11 +486,7 @@ export default function Finance({onBack}) {
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [apiReady, setApiReady] = useState(false);
-  const [incomeSources, setIncomeSources] = useState([
-    {id:'1', description:'Ed - RenaissanceTech', amount:6702.82, frequency:'monthly'},
-    {id:'2', description:'Ed - NDDPRINT', amount:2094.17, frequency:'monthly'},
-    {id:'3', description:'Nataly - IDEXX', amount:1906.10, frequency:'biweekly'},
-  ]);
+  const [incomeSources, setIncomeSources] = useState([]);
   const inputRef = useRef();
 
   // Compute total monthly income from sources
