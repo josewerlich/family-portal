@@ -36,7 +36,10 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    // ── AI PROXY — no auth required, just proxies to Anthropic ──────────────
+    // ── AI PROXY — no auth required ──────────────────────────────────────────
+    if (path === '/api/ai/parse' && method === 'GET') {
+      return json({status:'ok', message:'AI proxy ready'});
+    }
     if (path === '/api/ai/parse' && method === 'POST') {
       try {
         const body = await request.json();
