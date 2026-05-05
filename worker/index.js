@@ -8,8 +8,21 @@ const CORS = {
 function json(data, status=200) { return new Response(JSON.stringify(data), {status, headers:CORS}); }
 function err(msg, status=400) { return new Response(JSON.stringify({error:msg}), {status, headers:CORS}); }
 function getUser(request) {
-  return request.headers.get('CF-Access-Authenticated-User-Email') ||
-         request.headers.get('X-User-Email') || null;
+  // Cloudflare Access sets this header after authentication
+  const cfEmail = request.headers.get('CF-Access-Authenticated-User-Email');
+  if (cfEmail) return cfEmail;
+  
+  // Fallback: check Cf-Access-Jwt-Assertion and decode email from JWT
+  const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
+  if (jwt) {
+    try {
+      const payload = JSON.parse(atob(jwt.split('.')[1]));
+      if (payload.email) return payload.email;
+    } catch(e) {}
+  }
+  
+  // Dev fallback
+  return request.headers.get('X-User-Email') || null;
 }
 
 async function initDB(db) {
