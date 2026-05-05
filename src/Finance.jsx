@@ -139,27 +139,35 @@ function detectDebtPayments(txs, debts) {
 async function parseWithClaude(fileData, fileType, mode='transactions') {
   const cats = CATEGORIES.map(c=>c.id).join(", ");
   let sys, userMsg;
-  
+
   if (mode === 'debt') {
-    sys = `You are a financial document parser. Extract loan/debt details from this document. Return ONLY a JSON object (not array) with these fields:
-{"name":"loan name","balance":number,"original_balance":number,"payment":number,"rate":number,"deadline":"MMM YYYY or ongoing","deadline_date":"YYYY-MM-DD or null","type":"loan or deferred or promo","note":"brief description"}
-If you cannot find a field, use null. Be precise with numbers.`;
+    sys = `You are a financial document parser. Extract loan/debt details from this document. Return ONLY a JSON object with: {"name":"loan name","balance":number,"original_balance":number,"payment":number,"rate":number,"deadline":"MMM YYYY or ongoing","deadline_date":"YYYY-MM-DD or null","type":"loan or deferred or promo","note":"brief description"}`;
     userMsg = "Extract the loan/debt details from this document.";
   } else {
     sys = `Parse financial transactions. Return ONLY a JSON array. Each: {"date":"MM/DD","merchant":"name","amount":number,"category":"one of [${cats}]","source":"Chase or PNC"}. Expenses only, positive amounts only.`;
     userMsg = "Parse all expense transactions.";
   }
-  
-  const content = fileType.startsWith("image/")
-    ? [{type:"image",source:{type:"base64",media_type:fileType,data:fileData}},{type:"text",text:userMsg}]
+
+  // Normalize file type — Claude only supports jpeg/png/gif/webp
+  let mediaType = fileType || "image/jpeg";
+  if (["image/heic","image/heif","image/tiff"].includes(mediaType)) mediaType = "image/jpeg";
+  if (!["image/jpeg","image/png","image/gif","image/webp","application/pdf"].includes(mediaType)) mediaType = "image/jpeg";
+
+  const isImage = mediaType.startsWith("image/");
+  const msgContent = isImage
+    ? [{type:"image",source:{type:"base64",media_type:mediaType,data:fileData}},{type:"text",text:userMsg}]
     : [{type:"document",source:{type:"base64",media_type:"application/pdf",data:fileData}},{type:"text",text:userMsg}];
-  
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:sys,messages:[{role:"user",content}]})
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,system:sys,messages:[{role:"user",content:msgContent}]})
   });
+
+  if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()).slice(0,150)}`);
   const data = await res.json();
-  const text = data.content?.find(b=>b.type==="text")?.text||"{}";
+  if (data.error) throw new Error(data.error.message);
+  const text = data.content?.find(b=>b.type==="text")?.text || (mode==="debt"?"{}":"[]");
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
