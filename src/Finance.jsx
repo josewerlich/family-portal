@@ -356,7 +356,7 @@ function AddDebtModal({onAdd, onClose}) {
     <div style={{position:"fixed",inset:0,background:"rgba(26,23,20,0.6)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:600,maxHeight:"90vh",overflowY:"auto",padding:"24px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-          <h2 style={{margin:0,fontSize:20,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>Add New Debt</h2>
+          <h2 style={{margin:0,fontSize:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Add New Debt</h2>
           <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:16,color:C.text2}}>✕</button>
         </div>
 
@@ -437,7 +437,7 @@ function DebtPaymentModal({matches, onConfirm, onClose}) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(26,23,20,0.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:C.surface,borderRadius:24,width:"100%",maxWidth:500,padding:"24px",boxShadow:C.shadow2}}>
-        <h2 style={{margin:"0 0 6px",fontSize:20,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>Debt Payments Detected</h2>
+        <h2 style={{margin:"0 0 6px",fontSize:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Debt Payments Detected</h2>
         <p style={{margin:"0 0 20px",fontSize:13,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>We found payments that match your debts. Select which ones to update:</p>
         {matches.map(m=>(
           <div key={m.debt.id} onClick={()=>toggle(m.debt.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px",borderRadius:14,border:`1px solid ${selected.includes(m.debt.id)?C.terra:C.border}`,background:selected.includes(m.debt.id)?C.terra3:C.surface2,marginBottom:10,cursor:"pointer"}}>
@@ -634,7 +634,7 @@ export default function Finance({onBack}) {
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap');`}</style>
 
       {showAddDebt && <AddDebtModal onAdd={addDebt} onClose={()=>setShowAddDebt(false)}/>}
       {debtPaymentMatches && <DebtPaymentModal matches={debtPaymentMatches} onConfirm={confirmDebtPayments} onClose={()=>setDebtPaymentMatches(null)}/>}
@@ -647,7 +647,7 @@ export default function Finance({onBack}) {
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:11,padding:"5px 12px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
                 <div>
-                  <h1 style={{margin:0,fontSize:18,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>Family Finances</h1>
+                  <h1 style={{margin:0,fontSize:18,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
                   <div style={{fontSize:11,color:C.text3}}>{MONTHS[selectedMonth]} {selectedYear}</div>
                 </div>
               </div>
@@ -670,7 +670,7 @@ export default function Finance({onBack}) {
             <div style={{display:"flex",alignItems:"center",gap:20}}>
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
-                <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>Family Finances</h1>
+                <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
                 <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear}</div>
               </div>
             </div>
@@ -709,7 +709,7 @@ export default function Finance({onBack}) {
           {expenses.length===0
             ?<div style={{background:C.surface,borderRadius:20,padding:mobile?"40px 24px":"60px 40px",textAlign:"center",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
               <div style={{fontSize:36,marginBottom:14}}>📂</div>
-              <div style={{fontSize:mobile?16:18,fontWeight:600,fontFamily:"'Playfair Display',serif",color:C.text,marginBottom:8}}>No transactions yet</div>
+              <div style={{fontSize:mobile?16:18,fontWeight:600,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:8}}>No transactions yet</div>
               <div style={{fontSize:13,color:C.text3,marginBottom:20}}>Upload your Chase or PNC statements to get started</div>
               <button onClick={()=>setTab("upload")} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:"12px 24px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Upload Statements →</button>
             </div>
@@ -756,7 +756,7 @@ export default function Finance({onBack}) {
 
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:mobile?16:20,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>Your Debts</div>
+              <div style={{fontSize:mobile?16:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Your Debts</div>
               <div style={{fontSize:12,color:C.text3,marginTop:2}}>Drag to reorder priority</div>
             </div>
             <button onClick={()=>setShowAddDebt(true)} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:mobile?"10px 16px":"11px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:`0 4px 12px ${C.terra}44`}}>
@@ -767,7 +767,7 @@ export default function Finance({onBack}) {
           {debts.length===0
             ?<div style={{background:C.surface,borderRadius:16,padding:"40px 24px",textAlign:"center",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
               <div style={{fontSize:32,marginBottom:12}}>💳</div>
-              <div style={{fontSize:16,fontWeight:600,fontFamily:"'Playfair Display',serif",color:C.text,marginBottom:8}}>No debts added yet</div>
+              <div style={{fontSize:16,fontWeight:600,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:8}}>No debts added yet</div>
               <div style={{fontSize:13,color:C.text3,marginBottom:20}}>Add your loans, credit cards, and other debts to track and prioritize payoff</div>
               <button onClick={()=>setShowAddDebt(true)} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:"12px 24px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Add Your First Debt</button>
             </div>
@@ -788,7 +788,7 @@ export default function Finance({onBack}) {
         {tab==="transactions"&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text}}>{MONTHS[selectedMonth]} Transactions</div>
+              <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{MONTHS[selectedMonth]} Transactions</div>
               <div style={{fontSize:12,color:C.text3,marginTop:2}}>{expenses.length} expenses · {fmt(totalSpend)}</div>
             </div>
             <button onClick={async()=>{await apiFetch(`/api/transactions?month=${monthKey}`,{method:'DELETE'});setTxs([]);}}
@@ -831,7 +831,7 @@ export default function Finance({onBack}) {
 
         {/* UPLOAD */}
         {tab==="upload"&&<div style={{maxWidth:mobile?"100%":700}}>
-          <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.text,marginBottom:4}}>Upload Statements</div>
+          <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Upload Statements</div>
           <div style={{fontSize:13,color:C.text3,marginBottom:20}}>CSV files parse instantly. PDFs and photos use AI. Bank payments matching your debts will be detected automatically.</div>
 
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:16}}>
