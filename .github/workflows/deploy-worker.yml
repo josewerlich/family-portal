@@ -1,22 +1,35 @@
-name: Deploy Worker
+name: Deploy Workers
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'worker/**'
 
 jobs:
-  deploy:
+  deploy-api:
     runs-on: ubuntu-latest
-    name: Deploy Cloudflare Worker
+    name: Deploy finance-api Worker
     steps:
       - uses: actions/checkout@v4
-
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy API Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
-          command: deploy --name finance-api --compatibility-date 2024-01-01 --no-bundle
+          command: deploy --name finance-api --compatibility-date 2024-01-01
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    name: Deploy frontend Worker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Deploy frontend
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --name family-portal --compatibility-date 2024-01-01 --assets dist
