@@ -106,13 +106,30 @@ function parsePNCCSV(text){
   const lines=text.trim().split('\n');const txs=[];
   for(let i=1;i<lines.length;i++){
     const cols=lines[i].match(/(".*?"|[^,]+)(?=,|$)/g);
-    if(!cols||cols.length<4)continue;
-    const date=cols[0].replace(/"/g,'').trim();
+    if(!cols||cols.length<3)continue;
+    let dateStr=cols[0].replace(/"/g,'').trim();
     const desc=cols[1].replace(/"/g,'').trim();
-    const amount=parseFloat(cols[2].replace(/["$,]/g,'').trim());
+    const amtStr=cols[2].replace(/["$,\s]/g,'').trim();
+    const isExpense=cols[2].includes('-');
+    const isIncome=cols[2].includes('+');
+    const amount=parseFloat(amtStr.replace('-','').replace('+',''));
     if(isNaN(amount)||amount<=0)continue;
-    const parts=date.split('/');if(parts.length<2)continue;
-    txs.push({id:crypto.randomUUID(),date:`${parts[0].padStart(2,'0')}/${parts[1].padStart(2,'0')}`,merchant:desc,amount,category:categorize(desc),source:"PNC"});
+    // Handle PENDING dates like "PENDING - 05/05/2026"
+    if(dateStr.toUpperCase().includes('PENDING')){
+      const m=dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if(m) dateStr=`${m[3]}-${m[1]}-${m[2]}`; else continue;
+    }
+    // Handle YYYY-MM-DD format
+    let mm,dd;
+    if(dateStr.match(/\d{4}-\d{2}-\d{2}/)){
+      const parts=dateStr.split('-');mm=parts[1];dd=parts[2];
+    } else {
+      const parts=dateStr.split('/');
+      if(parts.length<2)continue;
+      mm=parts[0];dd=parts[1];
+    }
+    const type=isIncome?'income':'expense';
+    txs.push({id:crypto.randomUUID(),date:`${mm.padStart(2,'0')}/${dd.padStart(2,'0')}`,merchant:desc,amount,category:categorize(desc),source:"PNC",type});
   }
   return txs;
 }
