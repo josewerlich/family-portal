@@ -105,21 +105,28 @@ function parseChaseCSV(text){
 function parsePNCCSV(text){
   const lines=text.trim().split('\n');const txs=[];
   for(let i=1;i<lines.length;i++){
-    const cols=lines[i].match(/(".*?"|[^,]+)(?=,|$)/g);
-    if(!cols||cols.length<3)continue;
+    // Parse CSV properly handling quoted fields
+    const cols=[];
+    let cur='',inQ=false;
+    for(const ch of lines[i]+','){
+      if(ch==='"'){inQ=!inQ;}
+      else if(ch===','&&!inQ){cols.push(cur.trim());cur='';}
+      else cur+=ch;
+    }
+    if(cols.length<3)continue;
     let dateStr=cols[0].replace(/"/g,'').trim();
     const desc=cols[1].replace(/"/g,'').trim();
-    const amtStr=cols[2].replace(/["$,\s]/g,'').trim();
-    const isExpense=cols[2].includes('-');
-    const isIncome=cols[2].includes('+');
-    const amount=parseFloat(amtStr.replace('-','').replace('+',''));
+    const amtRaw=cols[2].replace(/"/g,'').trim();
+    const isIncome=amtRaw.includes('+');
+    const isExpense=amtRaw.includes('-');
+    if(!isIncome&&!isExpense)continue;
+    const amount=parseFloat(amtRaw.replace(/[^0-9.]/g,''));
     if(isNaN(amount)||amount<=0)continue;
-    // Handle PENDING dates like "PENDING - 05/05/2026"
+    // Handle PENDING dates
     if(dateStr.toUpperCase().includes('PENDING')){
       const m=dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
       if(m) dateStr=`${m[3]}-${m[1]}-${m[2]}`; else continue;
     }
-    // Handle YYYY-MM-DD format
     let mm,dd;
     if(dateStr.match(/\d{4}-\d{2}-\d{2}/)){
       const parts=dateStr.split('-');mm=parts[1];dd=parts[2];
@@ -762,7 +769,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.13</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.14</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
