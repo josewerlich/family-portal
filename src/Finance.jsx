@@ -138,6 +138,7 @@ function parseGenericCSV(text){
   const header=text.split('\n')[0].toLowerCase();
   if(header.includes('transaction date')||header.includes('post date'))return parseChaseCSV(text);
   if(header.includes('withdrawals')||header.includes('deposits'))return parsePNCCSV(text);
+  if(header.includes('transaction description')||header.includes('category'))return parsePNCCSV(text);
   return parseChaseCSV(text);
 }
 
