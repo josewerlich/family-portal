@@ -156,15 +156,33 @@ function parseGenericCSV(text){
   return parseChaseCSV(text);
 }
 
-// Detect debt payments in transactions
+// Detect debt payments — STRICT matching, only specific known patterns
+const DEBT_MATCH_PATTERNS = {
+  'BEST BUY': /BEST\s*BUY/i,
+  'CHASE': /CHASE\s*CREDIT|CARDMEMBER\s*SERV/i,
+  'APPLE': /APPLE.{0,10}CARD|APPLECARD|GSBANK/i,
+  'US BANK': /US\s*BANK|USBANK/i,
+  'ROCKET MORTGAGE': /ROCKET\s*MORTGAGE/i,
+  'WATERCRESS': /WATERCRESS/i,
+  'ROOF': /WATERCRESS/i,
+  'CAR': /AUTO\s*LOAN|VEHICLE\s*LOAN/i,  // Very strict, must say "auto loan"
+};
+
 function detectDebtPayments(txs, debts) {
   const matches = [];
   for (const tx of txs) {
     const desc = tx.merchant.toUpperCase();
     for (const debt of debts) {
       const name = debt.name.toUpperCase();
-      const keywords = name.split(/[\s()]/g).filter(w => w.length > 3);
-      if (keywords.some(k => desc.includes(k))) {
+      // Find matching pattern based on debt name keywords
+      let matched = false;
+      for (const [key, pattern] of Object.entries(DEBT_MATCH_PATTERNS)) {
+        if (name.includes(key) && pattern.test(desc)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) {
         matches.push({ tx, debt, suggestedBalance: Math.max(0, debt.balance - tx.amount) });
       }
     }
@@ -888,7 +906,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.22</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.23</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
