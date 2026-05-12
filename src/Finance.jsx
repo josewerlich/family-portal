@@ -66,6 +66,13 @@ async function apiFetch(path, opts={}) {
 }
 
 // ── CSV PARSERS ───────────────────────────────────────────────────────────────
+// Detect credit card payments — these should NOT be expenses, they're debt payments
+const CC_PAYMENT_PATTERNS = /CHASE CREDIT CRD|CARDMEMBER SERV|BEST BUY|APPLE.{0,10}CARD|APPLECARD|US BANK|USBANK|ACH DEBIT PAYPAL|ROCKET MORTGAGE|WATERCRESS/i;
+
+function isCreditCardPayment(desc) {
+  return CC_PAYMENT_PATTERNS.test(desc.toUpperCase());
+}
+
 function categorize(desc) {
   const d=desc.toUpperCase();
   if(/ROCKET MORTGAGE|WATERCRESS|MORTGAGE/.test(d))return"mortgage";
@@ -731,9 +738,11 @@ export default function Finance({onBack}) {
       } catch(err) { l.push(`✗ ${file.name}: ${err.message}`); setLog([...l]); }
     }
     if (newTxs.length > 0) {
-      // Separate income from expenses
+      // Separate income, credit card payments, and expenses
       const incomeTxs = newTxs.filter(t => t.type === 'income');
-      const expenseTxs = newTxs.filter(t => t.type !== 'income');
+      const ccPayments = newTxs.filter(t => t.type !== 'income' && isCreditCardPayment(t.merchant));
+      const expenseTxs = newTxs.filter(t => t.type !== 'income' && !isCreditCardPayment(t.merchant));
+      l.push(`Found: ${expenseTxs.length} expenses, ${ccPayments.length} CC/loan payments, ${incomeTxs.length} income`); setLog([...l]);
 
       // Group expenses by their actual month
       const byMonth = {};
@@ -773,17 +782,22 @@ export default function Finance({onBack}) {
       l.push(`Saving to ${monthKeys.length} month(s): ${monthKeys.join(', ')}`); setLog([...l]);
 
       for (const key of monthKeys) {
-        // Save expenses in batches of 10 to avoid payload limits
         if (byMonth[key]?.length > 0) {
-          const batch = byMonth[key];
+          // Check existing transactions for duplicates
+          const existing = await apiFetch(`/api/transactions?month=${key}`);
+          const existingKeys = new Set((existing||[]).map(t => `${t.date}|${t.merchant}|${t.amount}`));
+          const newOnly = byMonth[key].filter(t => !existingKeys.has(`${t.date}|${t.merchant}|${t.amount}`));
+          const skipped = byMonth[key].length - newOnly.length;
+          if (skipped > 0) l.push(`⊘ Skipped ${skipped} duplicate(s) for ${key}`); setLog([...l]);
+          if (newOnly.length === 0) continue;
           const BATCH_SIZE = 10;
           let allOk = true;
-          for (let b = 0; b < batch.length; b += BATCH_SIZE) {
-            const chunk = batch.slice(b, b + BATCH_SIZE);
+          for (let b = 0; b < newOnly.length; b += BATCH_SIZE) {
+            const chunk = newOnly.slice(b, b + BATCH_SIZE);
             const saveRes = await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify(chunk)});
             if (!saveRes?.ok) { allOk = false; break; }
           }
-          l.push(allOk ? `✓ Saved ${byMonth[key].length} expenses to ${key}` : `✗ Save failed for ${key}`); setLog([...l]);
+          l.push(allOk ? `✓ Saved ${newOnly.length} new expenses to ${key}` : `✗ Save failed for ${key}`); setLog([...l]);
         }
         // Save income as monthly setting
         if (incomeByMonth[key] > 0) {
@@ -799,9 +813,16 @@ export default function Finance({onBack}) {
 
       await loadTransactions();
       l.push(`✓ Dashboard updated`); setLog([...l]);
-      if (debts.length > 0) {
-        const matches = detectDebtPayments(expenseTxs, debts);
-        if (matches.length > 0) setDebtPaymentMatches(matches);
+      // Auto-match CC/loan payments to debts and update balances
+      if (debts.length > 0 && ccPayments.length > 0) {
+        const matches = detectDebtPayments(ccPayments, debts);
+        if (matches.length > 0) {
+          // Auto-apply (no confirmation modal)
+          for (const m of matches) {
+            await updateDebt(m.debt.id, {balance: m.suggestedBalance});
+          }
+          l.push(`✓ Auto-updated ${matches.length} debt balance(s)`); setLog([...l]);
+        }
       }
     } else {
       l.push('⚠ No transactions extracted from file'); setLog([...l]);
@@ -867,7 +888,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.21</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.22</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -888,7 +909,7 @@ export default function Finance({onBack}) {
 
       {/* TABS */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:mobile?"10px 14px":"12px 40px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none"}}>
-        {[["dashboard","Overview"],["debts","Debts"],["savings","Savings"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
+        {[["dashboard","Overview"],["debts","Debts"],["savings","Savings"],["insights","Insights"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
           <button key={t} style={T(t)} onClick={()=>setTab(t)}>{l}</button>)}
       </div>
 
@@ -950,14 +971,39 @@ export default function Finance({onBack}) {
             {!mobile&&<StatCard label="Extra After Minimums" value={fmt(availableForDebt-totalMin)} sub={`Min: ${fmt(totalMin)}/mo`} color={C.green} bg={C.green2}/>}
           </div>
 
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
             <div>
               <div style={{fontSize:mobile?16:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Your Debts</div>
               <div style={{fontSize:12,color:C.text3,marginTop:2}}>Drag to reorder priority</div>
             </div>
-            <button onClick={()=>setShowAddDebt(true)} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:mobile?"10px 16px":"11px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:`0 4px 12px ${C.terra}44`}}>
-              + Add Debt
-            </button>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={async()=>{
+                // Re-scan all transactions across all months for debt payments
+                let updated = 0;
+                for (let yr = 2024; yr <= new Date().getFullYear() + 1; yr++) {
+                  for (let m = 1; m <= 12; m++) {
+                    const mKey = `${yr}-${String(m).padStart(2,'0')}`;
+                    const txs = await apiFetch(`/api/transactions?month=${mKey}`);
+                    if (!Array.isArray(txs) || txs.length === 0) continue;
+                    const ccTxs = txs.filter(t => isCreditCardPayment(t.merchant));
+                    const matches = detectDebtPayments(ccTxs, debts);
+                    if (matches.length > 0) {
+                      for (const m2 of matches) {
+                        await updateDebt(m2.debt.id, {balance: m2.suggestedBalance});
+                        updated++;
+                      }
+                    }
+                  }
+                }
+                alert(`Re-scan complete. Updated ${updated} debt payment(s).`);
+                await loadAll();
+              }} style={{background:C.surface,border:`1px solid ${C.border2}`,color:C.text2,borderRadius:12,padding:mobile?"10px 12px":"11px 16px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                🔄 Re-scan
+              </button>
+              <button onClick={()=>setShowAddDebt(true)} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:mobile?"10px 16px":"11px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif",boxShadow:`0 4px 12px ${C.terra}44`}}>
+                + Add Debt
+              </button>
+            </div>
           </div>
 
           {debts.length===0
@@ -979,6 +1025,99 @@ export default function Finance({onBack}) {
               </div>
             </div>}
         </div>}
+
+        {/* INSIGHTS */}
+        {tab==="insights"&&(()=>{
+          // Detect subscriptions (small recurring monthly amounts)
+          const subscriptions = expenses.filter(t => 
+            /APPLE\.COM|SPOTIFY|NETFLIX|HULU|DISNEY|MICROSOFT|AT&T|T-MOBILE|VERIZON|VIVINT|BREEZELINE|YOUTUBE|AMAZON PRIME|ICLOUD|DROPBOX|ADOBE|CANVA/i.test(t.merchant)
+          ).sort((a,b)=>b.amount-a.amount);
+          const subTotal = subscriptions.reduce((s,t)=>s+t.amount,0);
+
+          // Recurring transactions (same merchant 2+ times)
+          const merchantCount = {};
+          expenses.forEach(t => { merchantCount[t.merchant] = (merchantCount[t.merchant]||0) + 1; });
+          const recurring = Object.entries(merchantCount).filter(([m,c]) => c >= 2 && !subscriptions.find(s=>s.merchant===m)).map(([m,c])=>{
+            const txs = expenses.filter(t => t.merchant === m);
+            const total = txs.reduce((s,t)=>s+t.amount,0);
+            return { merchant: m, count: c, total, avg: total/c };
+          }).sort((a,b)=>b.total-a.total).slice(0,10);
+
+          // Debt-free date calculation
+          const totalMin = debts.reduce((s,d)=>s+d.payment,0);
+          const totalBalance = debts.reduce((s,d)=>s+d.balance,0);
+          const monthsToPayoff = totalMin > 0 ? Math.ceil(totalBalance / totalMin) : 0;
+          const payoffDate = new Date();
+          payoffDate.setMonth(payoffDate.getMonth() + monthsToPayoff);
+
+          return (
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:14,marginBottom:14}}>
+                {/* Subscriptions Card */}
+                <div style={{background:C.surface,borderRadius:16,padding:"18px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>📱 Subscriptions</div>
+                      <div style={{fontSize:11,color:C.text3,marginTop:2}}>{subscriptions.length} active · {fmt(subTotal)}/mo total</div>
+                    </div>
+                  </div>
+                  {subscriptions.length===0 ? <div style={{fontSize:12,color:C.text3,padding:"12px 0"}}>No subscriptions detected this month</div>
+                    : <>
+                      {subscriptions.map(s=>(
+                        <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.merchant}</div>
+                            <div style={{fontSize:10,color:C.text3}}>{s.date}</div>
+                          </div>
+                          <div style={{fontWeight:700,color:C.text}}>{fmt(s.amount)}</div>
+                        </div>
+                      ))}
+                      {subTotal > 100 && (
+                        <div style={{marginTop:12,padding:"10px 12px",background:C.terra3,borderRadius:10,fontSize:11,color:C.terra,fontWeight:600}}>
+                          💡 Consider auditing — you could save {fmt(subTotal * 0.3)}/mo by canceling unused ones
+                        </div>
+                      )}
+                    </>}
+                </div>
+
+                {/* Debt-free Projection */}
+                <div style={{background:C.surface,borderRadius:16,padding:"18px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif",marginBottom:14}}>🎯 Debt-Free Projection</div>
+                  {debts.length === 0 ? <div style={{fontSize:12,color:C.text3}}>Add debts to see projection</div>
+                    : <>
+                      <div style={{fontSize:11,color:C.text3,marginBottom:4}}>At current minimum payments</div>
+                      <div style={{fontSize:24,fontWeight:700,color:C.green,fontFamily:"'Sora',sans-serif",letterSpacing:"-0.5px"}}>
+                        {payoffDate.toLocaleDateString('en-US',{month:'long',year:'numeric'})}
+                      </div>
+                      <div style={{fontSize:12,color:C.text3,marginTop:4,marginBottom:14}}>{monthsToPayoff} months from now</div>
+                      <div style={{padding:"10px 12px",background:C.green2,borderRadius:10,fontSize:11,color:C.green,fontWeight:600,lineHeight:1.5}}>
+                        💪 Paying {fmt(totalMin)}/mo total minimum<br/>
+                        Total to pay off: {fmt(totalBalance)}
+                      </div>
+                    </>}
+                </div>
+              </div>
+
+              {/* Recurring Transactions */}
+              <div style={{background:C.surface,borderRadius:16,padding:"18px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:14}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif",marginBottom:4}}>🔁 Recurring Transactions</div>
+                <div style={{fontSize:11,color:C.text3,marginBottom:14}}>Merchants you've spent at multiple times this month</div>
+                {recurring.length===0 ? <div style={{fontSize:12,color:C.text3,padding:"12px 0"}}>No recurring patterns yet</div>
+                  : <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10}}>
+                    {recurring.map(r=>(
+                      <div key={r.merchant} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:C.surface2,borderRadius:10}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.merchant}</div>
+                          <div style={{fontSize:10,color:C.text3}}>{r.count}× · avg {fmt(r.avg)}</div>
+                        </div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.text}}>{fmt(r.total)}</div>
+                      </div>
+                    ))}
+                  </div>}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* SAVINGS */}
         {tab==="savings"&&(<div>
