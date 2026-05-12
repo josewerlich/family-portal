@@ -664,12 +664,13 @@ export default function Finance({onBack}) {
         if (!byMonth[key]) byMonth[key] = [];
         byMonth[key].push(tx);
       }
+      // Also save income txs to byMonth so they show in transactions list
+      const incomeTxsByMonth = {};
       for (const tx of incomeTxs) {
         const [mm, dd] = (tx.date || '01/01').split('/');
         let monthNum = parseInt(mm);
         let year = selectedYear;
         const day = parseInt(dd);
-        // Income on the last 3 days of the month counts toward NEXT month
         const lastDay = new Date(year, monthNum, 0).getDate();
         if (day >= lastDay - 2) {
           monthNum++;
@@ -678,6 +679,14 @@ export default function Finance({onBack}) {
         const key = `${year}-${String(monthNum).padStart(2,'0')}`;
         if (!incomeByMonth[key]) incomeByMonth[key] = 0;
         incomeByMonth[key] += tx.amount;
+        // Also save the actual income transaction with negative amount as marker
+        if (!incomeTxsByMonth[key]) incomeTxsByMonth[key] = [];
+        incomeTxsByMonth[key].push({...tx, category:'income'});
+      }
+      // Merge income txs into byMonth so they get saved
+      for (const [k,arr] of Object.entries(incomeTxsByMonth)) {
+        if (!byMonth[k]) byMonth[k] = [];
+        byMonth[k].push(...arr);
       }
 
       const monthKeys = [...new Set([...Object.keys(byMonth), ...Object.keys(incomeByMonth)])];
@@ -778,7 +787,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.19</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.20</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
