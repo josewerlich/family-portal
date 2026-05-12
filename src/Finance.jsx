@@ -492,6 +492,62 @@ function DebtPaymentModal({matches, onConfirm, onClose}) {
   );
 }
 
+// ── ADD SAVINGS GOAL MODAL ────────────────────────────────────────────────────
+function AddGoalModal({onAdd, onClose}) {
+  const [form, setForm] = useState({name:"",target_amount:"",current_amount:"0",target_date:"",icon:"💰",color:"#3D8B6E"});
+  const ICONS = ["💰","🏠","✈️","🚗","💍","🎓","🏝️","💼","🎁","💎","🚨","⚡"];
+
+  const submit = () => {
+    if (!form.name || !form.target_amount) return alert("Name and target amount required");
+    onAdd({
+      ...form,
+      target_amount: parseFloat(form.target_amount),
+      current_amount: parseFloat(form.current_amount) || 0,
+      target_date: form.target_date || null,
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(26,23,20,0.6)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:"24px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <h2 style={{margin:0,fontSize:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>New Savings Goal</h2>
+          <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:C.text3,fontFamily:"'Sora',sans-serif",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Icon</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {ICONS.map(i=>(
+              <button key={i} onClick={()=>setForm(p=>({...p,icon:i}))}
+                style={{width:40,height:40,borderRadius:10,border:`2px solid ${form.icon===i?C.green:C.border}`,background:form.icon===i?C.green2:C.surface,fontSize:20,cursor:"pointer"}}>{i}</button>
+            ))}
+          </div>
+        </div>
+
+        {[
+          {label:"Goal Name *",key:"name",type:"text",placeholder:"e.g. Emergency Fund"},
+          {label:"Target Amount *",key:"target_amount",type:"number",placeholder:"e.g. 10000"},
+          {label:"Current Savings",key:"current_amount",type:"number",placeholder:"e.g. 0"},
+          {label:"Target Date",key:"target_date",type:"date",placeholder:""},
+        ].map(f=>(
+          <div key={f.key} style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:C.text3,fontFamily:"'Sora',sans-serif",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{f.label}</div>
+            <input type={f.type} value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))}
+              placeholder={f.placeholder}
+              style={{width:"100%",boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,padding:"10px 14px",fontSize:14,fontFamily:"'Sora',sans-serif"}}/>
+          </div>
+        ))}
+
+        <button onClick={submit} style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif",marginTop:8}}>
+          Create Goal
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function Finance({onBack}) {
   const mobile = useIsMobile();
@@ -506,6 +562,8 @@ export default function Finance({onBack}) {
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
   const [showAddDebt, setShowAddDebt] = useState(false);
+  const [showAddGoal, setShowAddGoal] = useState(false);
+  const [savings, setSavings] = useState([]);
   const [debtPaymentMatches, setDebtPaymentMatches] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -555,12 +613,14 @@ export default function Finance({onBack}) {
   }, [monthKey, apiReady]);
 
   const loadAll = async () => {
-    const [userData, debtData] = await Promise.all([
+    const [userData, debtData, savingsData] = await Promise.all([
       apiFetch('/api/user'),
       apiFetch('/api/debts'),
+      apiFetch('/api/savings'),
     ]);
     if (userData) setIncome(userData.income || 0);
     if (Array.isArray(debtData)) setDebts(debtData);
+    if (Array.isArray(savingsData)) setSavings(savingsData);
     setApiReady(true);
   };
 
@@ -608,6 +668,26 @@ export default function Finance({onBack}) {
     if (!confirm("Delete this debt?")) return;
     await apiFetch(`/api/debts/${id}`, {method:'DELETE'});
     setDebts(prev => prev.filter(d => d.id!==id));
+  };
+
+  // ── SAVINGS ACTIONS ──────────────────────────────────────────────────────
+  const addGoal = async (goalData) => {
+    const result = await apiFetch('/api/savings', {
+      method: 'POST',
+      body: JSON.stringify({...goalData, priority: savings.length + 1}),
+    });
+    if (result?.ok) await loadAll();
+  };
+
+  const updateGoal = async (id, data) => {
+    await apiFetch(`/api/savings/${id}`, {method:'PUT', body:JSON.stringify(data)});
+    setSavings(prev => prev.map(g => g.id===id ? {...g,...data} : g));
+  };
+
+  const deleteGoal = async (id) => {
+    if (!confirm("Delete this savings goal?")) return;
+    await apiFetch(`/api/savings/${id}`, {method:'DELETE'});
+    setSavings(prev => prev.filter(g => g.id!==id));
   };
 
   // ── DRAG TO REORDER ───────────────────────────────────────────────────────
@@ -787,7 +867,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.20</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.21</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -808,7 +888,7 @@ export default function Finance({onBack}) {
 
       {/* TABS */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:mobile?"10px 14px":"12px 40px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none"}}>
-        {[["dashboard","Overview"],["debts","Debts"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
+        {[["dashboard","Overview"],["debts","Debts"],["savings","Savings"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
           <button key={t} style={T(t)} onClick={()=>setTab(t)}>{l}</button>)}
       </div>
 
@@ -899,6 +979,70 @@ export default function Finance({onBack}) {
               </div>
             </div>}
         </div>}
+
+        {/* SAVINGS */}
+        {tab==="savings"&&(<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div>
+              <div style={{fontSize:mobile?16:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Savings Goals</div>
+              <div style={{fontSize:12,color:C.text3,marginTop:2}}>{savings.length} goal{savings.length!==1?"s":""} · {fmt(savings.reduce((s,g)=>s+(g.current_amount||0),0))} saved</div>
+            </div>
+            <button onClick={()=>setShowAddGoal(true)} style={{background:C.green,color:"#fff",border:"none",borderRadius:12,padding:mobile?"10px 16px":"11px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif",boxShadow:`0 4px 12px ${C.green}44`}}>
+              + Add Goal
+            </button>
+          </div>
+          {showAddGoal && <AddGoalModal onAdd={addGoal} onClose={()=>setShowAddGoal(false)}/>}
+          {savings.length===0
+            ? <div style={{background:C.surface,borderRadius:16,padding:"40px 24px",textAlign:"center",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:32,marginBottom:12}}>🎯</div>
+                <div style={{fontSize:16,fontWeight:600,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:8}}>No savings goals yet</div>
+                <div style={{fontSize:13,color:C.text3,marginBottom:20}}>Create goals for emergency fund, vacation, down payment, or anything you're saving for</div>
+                <button onClick={()=>setShowAddGoal(true)} style={{background:C.green,color:"#fff",border:"none",borderRadius:12,padding:"12px 24px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>Create Your First Goal</button>
+              </div>
+            : <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:14}}>
+                {savings.map(g=>{
+                  const p = pct(g.current_amount||0, g.target_amount||1);
+                  const remaining = (g.target_amount||0) - (g.current_amount||0);
+                  return (
+                    <div key={g.id} style={{background:C.surface,borderRadius:16,padding:"18px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+                          <span style={{fontSize:24}}>{g.icon||"💰"}</span>
+                          <div>
+                            <div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>{g.name}</div>
+                            {g.target_date && <div style={{fontSize:11,color:C.text3}}>Target: {new Date(g.target_date).toLocaleDateString('en-US',{month:'short',year:'numeric'})}</div>}
+                          </div>
+                        </div>
+                        <button onClick={()=>deleteGoal(g.id)} style={{background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:14}}>🗑</button>
+                      </div>
+                      <div style={{marginBottom:10}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                          <span style={{fontSize:13,fontWeight:700,color:C.text}}>{fmt(g.current_amount||0)}</span>
+                          <span style={{fontSize:13,color:C.text3}}>of {fmt(g.target_amount||0)}</span>
+                        </div>
+                        <Bar value={g.current_amount||0} max={g.target_amount||1} color={g.color||C.green} h={8}/>
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
+                          <span style={{fontSize:11,color:C.green,fontWeight:700}}>{p}% complete</span>
+                          <span style={{fontSize:11,color:C.text3}}>{fmt(remaining)} to go</span>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:8,marginTop:12}}>
+                        <input type="number" placeholder="Add savings..." style={{flex:1,background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                          onKeyDown={async(e)=>{
+                            if(e.key==='Enter'){
+                              const amt = parseFloat(e.target.value);
+                              if(!isNaN(amt) && amt > 0){
+                                await updateGoal(g.id, {current_amount: (g.current_amount||0) + amt});
+                                e.target.value = '';
+                              }
+                            }
+                          }}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>}
+        </div>)}
 
         {/* TRANSACTIONS */}
         {tab==="transactions"&&<div>

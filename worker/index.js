@@ -32,6 +32,7 @@ async function initDB(db) {
     CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, email TEXT NOT NULL, month_key TEXT NOT NULL, date TEXT, merchant TEXT, amount REAL, category TEXT, source TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS debts (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, balance REAL, original_balance REAL, payment REAL, rate REAL, deadline TEXT, deadline_date TEXT, type TEXT, priority INTEGER, note TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key));
+    CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
   `);
@@ -206,6 +207,39 @@ async function handleRequest(request, env) {
       const months = await env.DB.prepare('SELECT DISTINCT month_key FROM transactions WHERE email=? ORDER BY month_key DESC').bind(user).all();
       return json((months.results||[]).map(m=>m.month_key));
     }
+    // ── SAVINGS ─────────────────────────────────────────────────────
+    if (path === '/api/savings' && method === 'GET') {
+      const goals = await env.DB.prepare('SELECT * FROM savings_goals WHERE email = ? ORDER BY priority ASC').bind(user).all();
+      return json(goals.results || []);
+    }
+    if (path === '/api/savings' && method === 'POST') {
+      const body = await request.json();
+      const id = body.id || crypto.randomUUID();
+      await env.DB.prepare('INSERT OR REPLACE INTO savings_goals (id,email,name,target_amount,current_amount,target_date,priority,icon,color) VALUES (?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.target_amount,body.current_amount||0,body.target_date||null,body.priority||99,body.icon||'💰',body.color||'#3D8B6E').run();
+      return json({ok:true,id});
+    }
+    if (path.startsWith('/api/savings/') && method === 'PUT') {
+      const goalId = path.split('/').pop();
+      const body = await request.json();
+      const fields=[], values=[];
+      if (body.name!==undefined){fields.push('name=?');values.push(body.name);}
+      if (body.target_amount!==undefined){fields.push('target_amount=?');values.push(body.target_amount);}
+      if (body.current_amount!==undefined){fields.push('current_amount=?');values.push(body.current_amount);}
+      if (body.target_date!==undefined){fields.push('target_date=?');values.push(body.target_date);}
+      if (body.priority!==undefined){fields.push('priority=?');values.push(body.priority);}
+      if (body.icon!==undefined){fields.push('icon=?');values.push(body.icon);}
+      if (body.color!==undefined){fields.push('color=?');values.push(body.color);}
+      if (!fields.length) return err('nothing to update');
+      values.push(goalId, user);
+      await env.DB.prepare(`UPDATE savings_goals SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();
+      return json({ok:true});
+    }
+    if (path.startsWith('/api/savings/') && method === 'DELETE') {
+      const goalId = path.split('/').pop();
+      await env.DB.prepare('DELETE FROM savings_goals WHERE id=? AND email=?').bind(goalId, user).run();
+      return json({ok:true});
+    }
+
     return err('Not found', 404);
 }
 // deployed Tue May  5 21:42:20 UTC 2026
