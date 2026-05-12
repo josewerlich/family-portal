@@ -665,8 +665,17 @@ export default function Finance({onBack}) {
         byMonth[key].push(tx);
       }
       for (const tx of incomeTxs) {
-        const [mm] = (tx.date || '01/01').split('/');
-        const key = `${selectedYear}-${String(parseInt(mm)).padStart(2,'0')}`;
+        const [mm, dd] = (tx.date || '01/01').split('/');
+        let monthNum = parseInt(mm);
+        let year = selectedYear;
+        const day = parseInt(dd);
+        // Income on the last 3 days of the month counts toward NEXT month
+        const lastDay = new Date(year, monthNum, 0).getDate();
+        if (day >= lastDay - 2) {
+          monthNum++;
+          if (monthNum > 12) { monthNum = 1; year++; }
+        }
+        const key = `${year}-${String(monthNum).padStart(2,'0')}`;
         if (!incomeByMonth[key]) incomeByMonth[key] = 0;
         incomeByMonth[key] += tx.amount;
       }
@@ -769,7 +778,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.16</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.17</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
