@@ -21,6 +21,7 @@ const CATEGORIES = [
   {id:"subscriptions",label:"Subscriptions", color:"#2C6E8A",bg:"#E5F2F7",icon:"📱"},
   {id:"utilities",    label:"Utilities",     color:"#5A6E7A",bg:"#EDF1F4",icon:"💡"},
   {id:"mortgage",     label:"Mortgage",      color:"#C43A3A",bg:"#F5E6E6",icon:"🏠"},
+  {id:"car_loan",     label:"Car Loan",      color:"#1A5276",bg:"#D6EAF8",icon:"🚘"},
   {id:"insurance",    label:"Insurance",     color:"#8A5A2C",bg:"#F7EDE0",icon:"🛡️"},
   {id:"auto",         label:"Auto",          color:"#2C6B5A",bg:"#E0F2EC",icon:"🚗"},
   {id:"health",       label:"Health/Fitness",color:"#3D8B6E",bg:"#EAF4EF",icon:"💪"},
@@ -31,6 +32,7 @@ const CATEGORIES = [
   {id:"home",         label:"Home/Lawn",     color:"#4A7A3D",bg:"#E8F4E5",icon:"🏡"},
   {id:"personal",     label:"Personal Care", color:"#7A3D8A",bg:"#F2E8F5",icon:"✂️"},
   {id:"medical",      label:"Medical",       color:"#C43A3A",bg:"#F5E6E6",icon:"🏥"},
+  {id:"business",     label:"Business Trip", color:"#2E4057",bg:"#E8ECF0",icon:"💼"},
   {id:"other",        label:"Other",         color:"#6B6560",bg:"#F0EDE8",icon:"📌"},
 ];
 
@@ -582,6 +584,10 @@ export default function Finance({onBack}) {
   const [debts, setDebts] = useState([]);
   const [txs, setTxs] = useState([]);
   const [editTx, setEditTx] = useState(null);
+  const [expandedTx, setExpandedTx] = useState(null);
+  const [receiptItems, setReceiptItems] = useState({}); // txId -> [{name, amount, category}]
+  const [uploadingReceipt, setUploadingReceipt] = useState(null);
+  const receiptRef = useRef();
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState([]);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -855,6 +861,25 @@ export default function Finance({onBack}) {
     setDebtPaymentMatches(null);
   };
 
+  const uploadReceipt = async (txId, file) => {
+    setUploadingReceipt(txId);
+    try {
+      const base64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.readAsDataURL(file);});
+      const cats = CATEGORIES.map(c=>c.id).join(', ');
+      const sys = `Parse this receipt and return ONLY a JSON array of line items. Each: {"name":"item name","amount":number,"category":"one of [${cats}]"}. Only actual products/items, no tax or totals.`;
+      const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,system:sys,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type.includes('pdf')?'application/pdf':file.type,data:base64}},{type:"text",text:"Parse all line items from this receipt."}]}]})
+      });
+      const data = await res.json();
+      const text = data.content?.find(b=>b.type==="text")?.text||"[]";
+      const items = JSON.parse(text.replace(/\`\`\`json|\`\`\`/g,"").trim());
+      setReceiptItems(prev=>({...prev,[txId]:items}));
+      setExpandedTx(txId);
+    } catch(e) { alert("Could not parse receipt: "+e.message); }
+    setUploadingReceipt(null);
+  };
+
   const updateIncome = async (val) => {
     setIncome(val);
     await apiFetch('/api/user', {method:'PUT', body:JSON.stringify({income:val})});
@@ -906,7 +931,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.23</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.24</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1211,6 +1236,13 @@ export default function Finance({onBack}) {
             <button onClick={async()=>{await apiFetch(`/api/transactions?month=${monthKey}`,{method:'DELETE'});setTxs([]);}}
               style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:99,color:C.red,fontSize:12,padding:"7px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Clear</button>
           </div>
+          <input ref={receiptRef} type="file" accept="image/*,.pdf" style={{display:"none"}}
+            onChange={async e=>{
+              const file=e.target.files[0];
+              const txId=receiptRef.current.dataset.txid;
+              if(file&&txId) await uploadReceipt(txId,file);
+              e.target.value='';
+            }}/>
           {expenses.length===0
             ?<div style={{background:C.surface,borderRadius:16,padding:40,textAlign:"center",color:C.text3,fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>No transactions for this month.</div>
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
@@ -1236,12 +1268,34 @@ export default function Finance({onBack}) {
                         onBlur={()=>setEditTx(null)} autoFocus>
                         {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
                       </select>
-                      :<div style={{display:"flex",gap:6,marginTop:2,justifyContent:"flex-end"}}>
+                      :<div style={{display:"flex",gap:6,marginTop:2,justifyContent:"flex-end",alignItems:"center"}}>
+                        <button onClick={()=>{receiptRef.current.dataset.txid=tx.id;receiptRef.current.click();}}
+                          title="Add receipt" style={{fontSize:10,color:C.terra,background:"none",border:"none",cursor:"pointer",padding:0}}>
+                          {uploadingReceipt===tx.id?"⏳":"🧾+"}
+                        </button>
+                        {receiptItems[tx.id]?.length>0&&(
+                          <button onClick={()=>setExpandedTx(expandedTx===tx.id?null:tx.id)}
+                            style={{fontSize:10,color:C.green,background:"none",border:"none",cursor:"pointer",padding:0,fontWeight:700}}>
+                            {expandedTx===tx.id?"▲":"▼"}{receiptItems[tx.id].length}
+                          </button>
+                        )}
                         <button onClick={()=>setEditTx(tx.id)} style={{fontSize:10,color:C.text3,background:"none",border:"none",cursor:"pointer",padding:0}}>✏️</button>
                         <button onClick={async()=>{await apiFetch(`/api/transactions?id=${tx.id}`,{method:'DELETE'});setTxs(p=>p.filter(t=>t.id!==tx.id));}} style={{fontSize:10,color:C.red,background:"none",border:"none",cursor:"pointer",padding:0}}>✕</button>
                       </div>}
                   </div>
-                </div>;
+                </div>
+                {expandedTx===tx.id&&receiptItems[tx.id]?.length>0&&(
+                  <div style={{padding:"10px 14px 10px 58px",background:"#FDFAF7",borderTop:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:6}}>Receipt Items</div>
+                    {receiptItems[tx.id].map((item,idx)=>{
+                      const icat=CATEGORIES.find(c=>c.id===item.category)||CATEGORIES[CATEGORIES.length-1];
+                      return <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:idx<receiptItems[tx.id].length-1?`1px solid ${C.border}`:"none"}}>
+                        <span style={{fontSize:12,color:C.text}}>{icat.icon} {item.name}</span>
+                        <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmt(item.amount)}</span>
+                      </div>;
+                    })}
+                  </div>
+                )};
               })}
             </div>}
         </div>}
