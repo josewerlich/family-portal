@@ -1058,7 +1058,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.32</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.33</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1555,7 +1555,7 @@ Rules:
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
               {expenses.sort((a,b)=>b.amount-a.amount).map((tx,i)=>{
                 const cat=allCats.find(c=>c.id===tx.category)||allCats[allCats.length-1];
-                return <div key={tx.id} style={{display:"flex",alignItems:"center",gap:mobile?10:16,padding:mobile?"12px 14px":"14px 20px",borderBottom:i<expenses.length-1?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDFAF7"}}>
+                return <div key={tx.id}><div style={{display:"flex",alignItems:"center",gap:mobile?10:16,padding:mobile?"12px 14px":"14px 20px",borderBottom:(i<expenses.length-1&&expandedTx!==tx.id)?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDFAF7"}}>
                   <div style={{width:mobile?32:38,height:mobile?32:38,borderRadius:10,background:cat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:mobile?15:18,flexShrink:0}}>{cat.icon}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:mobile?12:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.merchant}</div>
@@ -1581,7 +1581,14 @@ Rules:
                           {uploadingReceipt===tx.id?"⏳":"🧾+"}
                         </button>
                         {(receiptItems[tx.id]?.length>0||tx.has_receipt)&&(
-                          <button onClick={()=>setExpandedTx(expandedTx===tx.id?null:tx.id)}
+                          <button onClick={async()=>{
+                            if (expandedTx===tx.id){setExpandedTx(null);return;}
+                            if (!receiptItems[tx.id] && tx.has_receipt) {
+                              const items=await apiFetch(`/api/receipt-items?tx_id=${tx.id}`);
+                              if(Array.isArray(items)) setReceiptItems(prev=>({...prev,[tx.id]:items}));
+                            }
+                            setExpandedTx(tx.id);
+                          }}
                             style={{fontSize:10,color:C.green,background:C.green2,border:`1px solid ${C.green}44`,borderRadius:6,cursor:"pointer",padding:"1px 5px",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
                             {receiptItems[tx.id]?.length||'…'} items {expandedTx===tx.id?"▲":"▼"}
                           </button>
@@ -1621,6 +1628,7 @@ Rules:
                     </div>
                   </div>
                 )}
+              </div>;
               })}
             </div>}
         </div>}
