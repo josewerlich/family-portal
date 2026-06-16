@@ -27,29 +27,34 @@ function getUser(request) {
 }
 
 async function initDB(db) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, income REAL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, email TEXT NOT NULL, month_key TEXT NOT NULL, date TEXT, merchant TEXT, amount REAL, category TEXT, source TEXT, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS debts (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, balance REAL, original_balance REAL, payment REAL, rate REAL, deadline TEXT, deadline_date TEXT, type TEXT, priority INTEGER, note TEXT, color TEXT, bg TEXT, account_pattern TEXT, created_at TEXT DEFAULT (datetime('now')));
-    CREATE INDEX IF NOT EXISTS idx_debts_account ON debts(account_pattern);
-    CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key));
-    CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS receipt_items (id TEXT PRIMARY KEY, tx_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, amount REAL, category TEXT, sort_order INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS income_sources (id TEXT PRIMARY KEY, email TEXT NOT NULL, description TEXT, amount REAL DEFAULT 0, frequency TEXT DEFAULT 'monthly', created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS households (id TEXT PRIMARY KEY, name TEXT, owner_email TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS household_members (household_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT DEFAULT 'member', joined_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (household_id, email));
-    CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
-    CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id);
-    CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
-    CREATE INDEX IF NOT EXISTS idx_hm_email ON household_members(email);
-  `);
-  // Migrate existing tables — ignore errors if column already exists
-  try { await db.exec(`ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`); } catch(_){}
-  try { await db.exec(`ALTER TABLE transactions ADD COLUMN has_receipt INTEGER DEFAULT 0`); } catch(_){}
-  try { await db.exec(`ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`); } catch(_){}
-  try { await db.exec(`ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''`); } catch(_){}
-  try { await db.exec(`ALTER TABLE users ADD COLUMN household_id TEXT DEFAULT NULL`); } catch(_){}
+  // Each statement in its own try/catch so one failure doesn't block the rest
+  const stmts = [
+    `CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, income REAL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, email TEXT NOT NULL, month_key TEXT NOT NULL, date TEXT, merchant TEXT, amount REAL, category TEXT, source TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS debts (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, balance REAL, original_balance REAL, payment REAL, rate REAL, deadline TEXT, deadline_date TEXT, type TEXT, priority INTEGER, note TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key))`,
+    `CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS receipt_items (id TEXT PRIMARY KEY, tx_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, amount REAL, category TEXT, sort_order INTEGER DEFAULT 0)`,
+    `CREATE TABLE IF NOT EXISTS income_sources (id TEXT PRIMARY KEY, email TEXT NOT NULL, description TEXT, amount REAL DEFAULT 0, frequency TEXT DEFAULT 'monthly', created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS households (id TEXT PRIMARY KEY, name TEXT, owner_email TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS household_members (household_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT DEFAULT 'member', joined_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (household_id, email))`,
+    // Migrations — safe to re-run, errors ignored
+    `ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`,
+    `ALTER TABLE transactions ADD COLUMN has_receipt INTEGER DEFAULT 0`,
+    `ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`,
+    `ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN household_id TEXT DEFAULT NULL`,
+    // Indexes — after columns exist
+    `CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key)`,
+    `CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email)`,
+    `CREATE INDEX IF NOT EXISTS idx_debts_account ON debts(account_pattern)`,
+    `CREATE INDEX IF NOT EXISTS idx_hm_email ON household_members(email)`,
+  ];
+  for (const sql of stmts) {
+    try { await db.exec(sql); } catch(_) {}
+  }
 }
 
 async function ensureUser(db, email) {
