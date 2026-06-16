@@ -675,15 +675,63 @@ export default function Finance({onBack}) {
     setApiReady(true);
   };
 
+  const applyDebtPayments = async (currentDebts) => {
+    const debtList = currentDebts || debts;
+    if (!debtList.length) return 0;
+    // Collect ALL months that have transactions
+    const monthKeys = [];
+    for (let yr = 2024; yr <= new Date().getFullYear() + 1; yr++) {
+      for (let m = 1; m <= 12; m++) {
+        monthKeys.push(`${yr}-${String(m).padStart(2,'0')}`);
+      }
+    }
+    // Sum payments per debt across all months
+    const paidByDebt = {};
+    for (const mKey of monthKeys) {
+      const txArr = await apiFetch(`/api/transactions?month=${mKey}`);
+      if (!Array.isArray(txArr) || txArr.length === 0) continue;
+      const matches = detectDebtPayments(txArr, debtList);
+      for (const m2 of matches) {
+        paidByDebt[m2.debt.id] = (paidByDebt[m2.debt.id] || 0) + m2.tx.amount;
+      }
+    }
+    // Compute new balance from original_balance minus total paid (idempotent)
+    let updated = 0;
+    for (const [debtId, totalPaid] of Object.entries(paidByDebt)) {
+      const debt = debtList.find(d => d.id === debtId);
+      if (!debt) continue;
+      const newBalance = Math.max(0, (debt.original_balance || debt.balance) - totalPaid);
+      await updateDebt(debtId, {balance: newBalance});
+      updated++;
+    }
+    return updated;
+  };
+
   const loadTransactions = async () => {
     const [txData, monthData] = await Promise.all([
       apiFetch(`/api/transactions?month=${monthKey}`),
       apiFetch(`/api/monthly?month=${monthKey}`),
     ]);
-    if (Array.isArray(txData)) setTxs(txData);
-    else setTxs([]);
+    const txArr = Array.isArray(txData) ? txData : [];
+    setTxs(txArr);
     // Load month-specific income if available
     if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
+    // Auto-apply detected payments for this month
+    if (debts.length > 0 && txArr.length > 0) {
+      const matches = detectDebtPayments(txArr, debts);
+      const paidByDebt = {};
+      for (const m of matches) {
+        paidByDebt[m.debt.id] = (paidByDebt[m.debt.id] || 0) + m.tx.amount;
+      }
+      for (const [debtId, totalPaid] of Object.entries(paidByDebt)) {
+        const debt = debts.find(d => d.id === debtId);
+        if (!debt) continue;
+        const newBalance = Math.max(0, (debt.original_balance || debt.balance) - totalPaid);
+        if (Math.abs(newBalance - debt.balance) > 0.01) {
+          await updateDebt(debtId, {balance: newBalance});
+        }
+      }
+    }
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
@@ -951,7 +999,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.27</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.29</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1041,24 +1089,8 @@ export default function Finance({onBack}) {
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={async()=>{
-                // Re-scan all transactions across all months for debt payments
-                let updated = 0;
-                for (let yr = 2024; yr <= new Date().getFullYear() + 1; yr++) {
-                  for (let m = 1; m <= 12; m++) {
-                    const mKey = `${yr}-${String(m).padStart(2,'0')}`;
-                    const txs = await apiFetch(`/api/transactions?month=${mKey}`);
-                    if (!Array.isArray(txs) || txs.length === 0) continue;
-                    const matches = detectDebtPayments(txs, debts);
-                    if (matches.length > 0) {
-                      for (const m2 of matches) {
-                        await updateDebt(m2.debt.id, {balance: m2.suggestedBalance});
-                        updated++;
-                      }
-                    }
-                  }
-                }
-                alert(`Re-scan complete. Updated ${updated} debt payment(s).`);
-                await loadAll();
+                const updated = await applyDebtPayments(debts);
+                alert(`Re-scan complete. Updated ${updated} debt balance(s).`);
               }} style={{background:C.surface,border:`1px solid ${C.border2}`,color:C.text2,borderRadius:12,padding:mobile?"10px 12px":"11px 16px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
                 🔄 Re-scan
               </button>
