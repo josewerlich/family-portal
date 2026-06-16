@@ -39,6 +39,7 @@ async function initDB(db) {
   `);
   // Migrate existing tables — ignore errors if column already exists
   try { await db.exec(`ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`); } catch(_){}
+  try { await db.exec(`ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`); } catch(_){}
 }
 
 async function ensureUser(db, email) {
@@ -199,12 +200,13 @@ async function handleRequest(request, env) {
     if (path === '/api/monthly' && method === 'GET') {
       const monthKey = url.searchParams.get('month');
       const settings = await env.DB.prepare('SELECT * FROM monthly_settings WHERE email=? AND month_key=?').bind(user, monthKey).first();
-      return json(settings||{});
+      if (!settings) return json({});
+      return json({...settings, budgets: JSON.parse(settings.budgets||'{}')});
     }
     if (path === '/api/monthly' && method === 'PUT') {
       const monthKey = url.searchParams.get('month');
       const body = await request.json();
-      await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income) VALUES (?,?,?)').bind(user, monthKey, body.income).run();
+      await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income,budgets) VALUES (?,?,?,?)').bind(user, monthKey, body.income, JSON.stringify(body.budgets||{})).run();
       return json({ok:true});
     }
     if (path === '/api/months' && method === 'GET') {

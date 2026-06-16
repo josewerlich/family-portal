@@ -620,6 +620,8 @@ export default function Finance({onBack}) {
   const [dragOverId, setDragOverId] = useState(null);
   const [apiReady, setApiReady] = useState(false);
   const [incomeSources, setIncomeSources] = useState([]);
+  const [monthlyData, setMonthlyData] = useState({});
+  const [monthBudgets, setMonthBudgets] = useState({});
   const inputRef = useRef();
 
   // Compute total monthly income from sources
@@ -662,6 +664,32 @@ export default function Finance({onBack}) {
   useEffect(() => {
     if (apiReady) loadTransactions();
   }, [monthKey, apiReady]);
+
+  useEffect(() => {
+    if (tab === 'dashboard') loadMonthlyData();
+  }, [tab, selectedYear]);
+
+  const loadMonthlyData = async () => {
+    const result = {};
+    const now2 = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const [txArr, mData] = await Promise.all([
+        apiFetch(`/api/transactions?month=${key}`),
+        apiFetch(`/api/monthly?month=${key}`),
+      ]);
+      const txs2 = Array.isArray(txArr) ? txArr : [];
+      const inc = mData?.income || 0;
+      const byCat2 = {};
+      txs2.filter(t=>t.amount>0 && !/credit/i.test(t.merchant) && t.category!=='income').forEach(t=>{
+        byCat2[t.category]=(byCat2[t.category]||0)+t.amount;
+      });
+      const spent = Object.values(byCat2).reduce((s,v)=>s+v,0);
+      result[key] = {income:inc, spent, net:inc-spent, byCat:byCat2, label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]};
+    }
+    setMonthlyData(result);
+  };
 
   const loadAll = async () => {
     const [userData, debtData, savingsData] = await Promise.all([
@@ -714,8 +742,9 @@ export default function Finance({onBack}) {
     ]);
     const txArr = Array.isArray(txData) ? txData : [];
     setTxs(txArr);
-    // Load month-specific income if available
+    // Load month-specific income and budgets if available
     if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
+    if (monthData?.budgets) setMonthBudgets(typeof monthData.budgets==='string' ? JSON.parse(monthData.budgets) : monthData.budgets);
     // Auto-apply detected payments for this month
     if (debts.length > 0 && txArr.length > 0) {
       const matches = detectDebtPayments(txArr, debts);
@@ -999,7 +1028,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.29</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.30</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1020,7 +1049,7 @@ export default function Finance({onBack}) {
 
       {/* TABS */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:mobile?"10px 14px":"12px 40px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none"}}>
-        {[["dashboard","Overview"],["debts","Debts"],["savings","Savings"],["insights","Insights"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
+        {[["dashboard","Overview"],["budget","Budget"],["debts","Debts"],["savings","Savings"],["insights","Insights"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
           <button key={t} style={T(t)} onClick={()=>setTab(t)}>{l}</button>)}
       </div>
 
@@ -1056,7 +1085,7 @@ export default function Finance({onBack}) {
               <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:3}}>By Category</div>
                 <div style={{fontSize:12,color:C.text3,marginBottom:12}}>Top spending areas</div>
-                {CATEGORIES.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).slice(0,mobile?6:8).map(c=><CatRow key={c.id} cat={c} actual={byCat[c.id]} budget={BUDGET[c.id]||100}/>)}
+                {CATEGORIES.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).slice(0,mobile?6:8).map(c=><CatRow key={c.id} cat={c} actual={byCat[c.id]} budget={monthBudgets[c.id]||BUDGET[c.id]||100}/>)}
               </div>
               <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:3}}>All Categories</div>
@@ -1065,14 +1094,146 @@ export default function Finance({onBack}) {
                   {CATEGORIES.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).map(c=>(
                     <div key={c.id} style={{background:c.bg,borderRadius:12,padding:"10px 12px"}}>
                       <div style={{fontSize:11,color:C.text2,marginBottom:4}}>{c.icon} {c.label}</div>
-                      <div style={{fontSize:mobile?15:17,fontWeight:700,color:byCat[c.id]>BUDGET[c.id]?C.red:c.color}}>{fmt(byCat[c.id])}</div>
-                      <Bar value={byCat[c.id]} max={BUDGET[c.id]||100} color={c.color} h={3}/>
+                      <div style={{fontSize:mobile?15:17,fontWeight:700,color:byCat[c.id]>(monthBudgets[c.id]||BUDGET[c.id])?C.red:c.color}}>{fmt(byCat[c.id])}</div>
+                      <Bar value={byCat[c.id]} max={monthBudgets[c.id]||BUDGET[c.id]||100} color={c.color} h={3}/>
                     </div>
                   ))}
                 </div>
               </div>
             </div>}
+
+          {/* ── CHARTS ── */}
+          {Object.keys(monthlyData).length > 0 && (()=>{
+            const months6 = Object.keys(monthlyData).sort();
+            const maxVal = Math.max(...months6.map(k=>Math.max(monthlyData[k].income,monthlyData[k].spent)),1);
+            const curKey = `${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}`;
+            const curData = monthlyData[curKey] || {};
+            const catData = CATEGORIES.filter(c=>(curData.byCat||{})[c.id]>0).sort((a,b)=>(curData.byCat[b.id]||0)-(curData.byCat[a.id]||0)).slice(0,8);
+            const maxCat = Math.max(...catData.map(c=>(curData.byCat||{})[c.id]||0),1);
+            // Net savings line chart data
+            const nets = months6.map(k=>monthlyData[k].net);
+            const maxNet = Math.max(...nets.map(Math.abs),1);
+            const W=300, H=120, PAD=36;
+            const pts = nets.map((n,i)=>{
+              const x = PAD + (i/(months6.length-1||1))*(W-PAD*2);
+              const y = H/2 - (n/maxNet)*(H/2-12);
+              return `${x},${y}`;
+            }).join(' ');
+            return (
+              <div style={{marginTop:24,display:"grid",gridTemplateColumns:mobile?"1fr":catData.length?"1fr 1fr":"1fr",gap:mobile?14:20}}>
+                {/* Category bar chart */}
+                {catData.length>0&&<div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Spending by Category</div>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:14}}>{MONTHS[selectedMonth]} {selectedYear}</div>
+                  {catData.map(c=>{
+                    const val=(curData.byCat||{})[c.id]||0;
+                    const barW=Math.round((val/maxCat)*100);
+                    return <div key={c.id} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:12,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{c.icon} {c.label}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:c.color,fontFamily:"'DM Sans',sans-serif"}}>{fmt(val)}</span>
+                      </div>
+                      <div style={{background:C.surface2,borderRadius:99,height:8,overflow:"hidden"}}>
+                        <div style={{width:`${barW}%`,height:"100%",background:c.color,borderRadius:99,transition:"width .5s"}}/>
+                      </div>
+                    </div>;
+                  })}
+                </div>}
+
+                {/* Income vs Expenses bar chart */}
+                <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Income vs Expenses</div>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:14}}>Last 6 months</div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:mobile?6:10,height:130}}>
+                    {months6.map(k=>{
+                      const d=monthlyData[k];
+                      const incH=Math.round((d.income/maxVal)*110);
+                      const spH=Math.round((d.spent/maxVal)*110);
+                      return <div key={k} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:110}}>
+                          <div title={`Income: ${fmt(d.income)}`} style={{width:mobile?10:14,height:incH,background:C.green,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                          <div title={`Spent: ${fmt(d.spent)}`} style={{width:mobile?10:14,height:spH,background:C.terra,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                        </div>
+                        <div style={{fontSize:9,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>{d.label}</div>
+                      </div>;
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:16,marginTop:10}}>
+                    <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.text3}}><span style={{width:10,height:10,background:C.green,borderRadius:2,display:"inline-block"}}/>Income</span>
+                    <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.text3}}><span style={{width:10,height:10,background:C.terra,borderRadius:2,display:"inline-block"}}/>Expenses</span>
+                  </div>
+                </div>
+
+                {/* Net savings line chart */}
+                <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,gridColumn:mobile?"1":"1/-1"}}>
+                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Net Savings Trend</div>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:10}}>Last 6 months · Income minus expenses</div>
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:mobile?90:H}}>
+                    <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} stroke={C.border2} strokeWidth="1" strokeDasharray="4 3"/>
+                    {nets.map((n,i)=>{
+                      const x=PAD+(i/(months6.length-1||1))*(W-PAD*2);
+                      const y=H/2-(n/maxNet)*(H/2-12);
+                      return <g key={i}>
+                        <circle cx={x} cy={y} r={4} fill={n>=0?C.green:C.red}/>
+                        <text x={x} y={n>=0?y-8:y+14} textAnchor="middle" fontSize="8" fill={n>=0?C.green:C.red} fontFamily="DM Sans">{n>=0?"+":""}{Math.round(n/100)/10}k</text>
+                      </g>;
+                    })}
+                    <polyline points={pts} fill="none" stroke={nets[nets.length-1]>=0?C.green:C.red} strokeWidth="2"/>
+                    {months6.map((k,i)=>{
+                      const x=PAD+(i/(months6.length-1||1))*(W-PAD*2);
+                      return <text key={k} x={x} y={H-2} textAnchor="middle" fontSize="8" fill={C.text3} fontFamily="DM Sans">{monthlyData[k].label}</text>;
+                    })}
+                  </svg>
+                </div>
+              </div>
+            );
+          })()}
         </div>}
+
+        {/* BUDGET */}
+        {tab==="budget"&&(()=>{
+          const effectiveBudget = (id) => monthBudgets[id] || BUDGET[id] || 0;
+          const totalBudgeted = CATEGORIES.reduce((s,c)=>s+effectiveBudget(c.id),0);
+          const saveBudgets = async () => {
+            await apiFetch(`/api/monthly?month=${monthKey}`, {method:'PUT', body:JSON.stringify({income, budgets: monthBudgets})});
+            alert('Budget saved!');
+          };
+          return <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:mobile?18:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Monthly Budget</div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{MONTHS[selectedMonth]} {selectedYear} · Total budgeted: {fmt(totalBudgeted)}</div>
+              </div>
+              <button onClick={saveBudgets} style={{background:C.green,color:"#fff",border:"none",borderRadius:12,padding:"11px 24px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                Save Budget
+              </button>
+            </div>
+            <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,marginBottom:10,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+                {["Category","Budgeted","Spent"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
+              </div>
+              {CATEGORIES.map(c=>{
+                const budget=effectiveBudget(c.id);
+                const actual=byCat[c.id]||0;
+                const over=actual>budget&&budget>0;
+                return <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,marginBottom:14,alignItems:"center"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                      <span style={{fontSize:14}}>{c.icon}</span>
+                      <span style={{fontSize:13,fontWeight:600,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{c.label}</span>
+                    </div>
+                    <div style={{background:C.surface2,borderRadius:99,height:5,overflow:"hidden"}}>
+                      <div style={{width:`${budget>0?Math.min(100,Math.round((actual/budget)*100)):0}%`,height:"100%",background:over?C.red:c.color,borderRadius:99}}/>
+                    </div>
+                  </div>
+                  <input type="number" value={budget} onChange={e=>setMonthBudgets(p=>({...p,[c.id]:parseFloat(e.target.value)||0}))}
+                    style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:13,width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"}}/>
+                  <div style={{fontSize:13,fontWeight:600,color:over?C.red:actual>0?c.color:C.text3,fontFamily:"'DM Sans',sans-serif",textAlign:"right"}}>{actual>0?fmt(actual):"—"}</div>
+                </div>;
+              })}
+            </div>
+          </div>;
+        })()}
 
         {/* DEBTS */}
         {tab==="debts"&&<div>
