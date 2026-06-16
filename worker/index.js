@@ -34,6 +34,7 @@ async function initDB(db) {
     CREATE INDEX IF NOT EXISTS idx_debts_account ON debts(account_pattern);
     CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key));
     CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
   `);
@@ -207,6 +208,22 @@ async function handleRequest(request, env) {
       const monthKey = url.searchParams.get('month');
       const body = await request.json();
       await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income,budgets) VALUES (?,?,?,?)').bind(user, monthKey, body.income, JSON.stringify(body.budgets||{})).run();
+      return json({ok:true});
+    }
+    // ── CUSTOM CATEGORIES ────────────────────────────────────────────
+    if (path === '/api/categories' && method === 'GET') {
+      const cats = await env.DB.prepare('SELECT * FROM custom_categories WHERE email=? ORDER BY created_at ASC').bind(user).all();
+      return json(cats.results||[]);
+    }
+    if (path === '/api/categories' && method === 'POST') {
+      const body = await request.json();
+      const id = crypto.randomUUID();
+      await env.DB.prepare('INSERT INTO custom_categories (id,email,label,icon,color,bg) VALUES (?,?,?,?,?,?)').bind(id,user,body.label,body.icon||'📌',body.color||'#6B6560',body.bg||'#F0EDE8').run();
+      return json({ok:true,id});
+    }
+    if (path.startsWith('/api/categories/') && method === 'DELETE') {
+      const catId = path.split('/').pop();
+      await env.DB.prepare('DELETE FROM custom_categories WHERE id=? AND email=?').bind(catId,user).run();
       return json({ok:true});
     }
     if (path === '/api/months' && method === 'GET') {

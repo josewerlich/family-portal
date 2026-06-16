@@ -622,6 +622,7 @@ export default function Finance({onBack}) {
   const [incomeSources, setIncomeSources] = useState([]);
   const [monthlyData, setMonthlyData] = useState({});
   const [monthBudgets, setMonthBudgets] = useState({});
+  const [customCategories, setCustomCategories] = useState([]);
   const inputRef = useRef();
 
   // Compute total monthly income from sources
@@ -692,14 +693,16 @@ export default function Finance({onBack}) {
   };
 
   const loadAll = async () => {
-    const [userData, debtData, savingsData] = await Promise.all([
+    const [userData, debtData, savingsData, catData] = await Promise.all([
       apiFetch('/api/user'),
       apiFetch('/api/debts'),
       apiFetch('/api/savings'),
+      apiFetch('/api/categories'),
     ]);
     if (userData) setIncome(userData.income || 0);
     if (Array.isArray(debtData)) setDebts(debtData);
     if (Array.isArray(savingsData)) setSavings(savingsData);
+    if (Array.isArray(catData)) setCustomCategories(catData);
     setApiReady(true);
   };
 
@@ -764,11 +767,12 @@ export default function Finance({onBack}) {
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
+  const allCats = [...CATEGORIES, ...customCategories.map(c=>({...c,id:c.id}))];
   const expenses = txs.filter(t=>t.amount>0 && !/credit/i.test(t.merchant));
   const totalSpend = expenses.reduce((s,t)=>s+t.amount,0);
   const net = income - totalSpend;
   const byCat = {};
-  CATEGORIES.forEach(c=>{byCat[c.id]=0;});
+  allCats.forEach(c=>{byCat[c.id]=0;});
   expenses.forEach(t=>{byCat[t.category]=(byCat[t.category]||0)+t.amount;});
   const totalDebt = debts.reduce((s,d)=>s+d.balance,0);
   const totalPaid = debts.reduce((s,d)=>s+((d.original_balance||d.balance)-d.balance),0);
@@ -962,7 +966,7 @@ export default function Finance({onBack}) {
     setUploadingReceipt(txId);
     try {
       const base64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.readAsDataURL(file);});
-      const cats = CATEGORIES.map(c=>c.id).join(', ');
+      const cats = allCats.map(c=>c.id).join(', ');
       const sys = `Parse this receipt and return ONLY a JSON array of line items. Each: {"name":"item name","amount":number,"category":"one of [${cats}]"}. Only actual products/items, no tax or totals.`;
       const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -1028,7 +1032,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.30</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.31</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1085,13 +1089,13 @@ export default function Finance({onBack}) {
               <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:3}}>By Category</div>
                 <div style={{fontSize:12,color:C.text3,marginBottom:12}}>Top spending areas</div>
-                {CATEGORIES.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).slice(0,mobile?6:8).map(c=><CatRow key={c.id} cat={c} actual={byCat[c.id]} budget={monthBudgets[c.id]||BUDGET[c.id]||100}/>)}
+                {allCats.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).slice(0,mobile?6:8).map(c=><CatRow key={c.id} cat={c} actual={byCat[c.id]} budget={monthBudgets[c.id]||BUDGET[c.id]||100}/>)}
               </div>
               <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:3}}>All Categories</div>
                 <div style={{fontSize:12,color:C.text3,marginBottom:12}}>Complete breakdown</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {CATEGORIES.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).map(c=>(
+                  {allCats.filter(c=>byCat[c.id]>0).sort((a,b)=>byCat[b.id]-byCat[a.id]).map(c=>(
                     <div key={c.id} style={{background:c.bg,borderRadius:12,padding:"10px 12px"}}>
                       <div style={{fontSize:11,color:C.text2,marginBottom:4}}>{c.icon} {c.label}</div>
                       <div style={{fontSize:mobile?15:17,fontWeight:700,color:byCat[c.id]>(monthBudgets[c.id]||BUDGET[c.id])?C.red:c.color}}>{fmt(byCat[c.id])}</div>
@@ -1108,7 +1112,7 @@ export default function Finance({onBack}) {
             const maxVal = Math.max(...months6.map(k=>Math.max(monthlyData[k].income,monthlyData[k].spent)),1);
             const curKey = `${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}`;
             const curData = monthlyData[curKey] || {};
-            const catData = CATEGORIES.filter(c=>(curData.byCat||{})[c.id]>0).sort((a,b)=>(curData.byCat[b.id]||0)-(curData.byCat[a.id]||0)).slice(0,8);
+            const catData = allCats.filter(c=>(curData.byCat||{})[c.id]>0).sort((a,b)=>(curData.byCat[b.id]||0)-(curData.byCat[a.id]||0)).slice(0,8);
             const maxCat = Math.max(...catData.map(c=>(curData.byCat||{})[c.id]||0),1);
             // Net savings line chart data
             const nets = months6.map(k=>monthlyData[k].net);
@@ -1193,7 +1197,7 @@ export default function Finance({onBack}) {
         {/* BUDGET */}
         {tab==="budget"&&(()=>{
           const effectiveBudget = (id) => monthBudgets[id] || BUDGET[id] || 0;
-          const totalBudgeted = CATEGORIES.reduce((s,c)=>s+effectiveBudget(c.id),0);
+          const totalBudgeted = allCats.reduce((s,c)=>s+effectiveBudget(c.id),0);
           const saveBudgets = async () => {
             await apiFetch(`/api/monthly?month=${monthKey}`, {method:'PUT', body:JSON.stringify({income, budgets: monthBudgets})});
             alert('Budget saved!');
@@ -1212,7 +1216,7 @@ export default function Finance({onBack}) {
               <div style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,marginBottom:10,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
                 {["Category","Budgeted","Spent"].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
               </div>
-              {CATEGORIES.map(c=>{
+              {allCats.map(c=>{
                 const budget=effectiveBudget(c.id);
                 const actual=byCat[c.id]||0;
                 const over=actual>budget&&budget>0;
@@ -1231,6 +1235,62 @@ export default function Finance({onBack}) {
                   <div style={{fontSize:13,fontWeight:600,color:over?C.red:actual>0?c.color:C.text3,fontFamily:"'DM Sans',sans-serif",textAlign:"right"}}>{actual>0?fmt(actual):"—"}</div>
                 </div>;
               })}
+            </div>
+
+            {/* Custom Categories */}
+            <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Custom Categories</div>
+              <div style={{fontSize:12,color:C.text3,marginBottom:16}}>Add your own spending categories</div>
+              {customCategories.map(c=>(
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:c.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{c.icon}</div>
+                  <div style={{flex:1,fontSize:13,fontWeight:600,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{c.label}</div>
+                  <button onClick={async()=>{
+                    await apiFetch(`/api/categories/${c.id}`,{method:'DELETE'});
+                    setCustomCategories(p=>p.filter(x=>x.id!==c.id));
+                  }} style={{background:"none",border:"none",color:C.text3,cursor:"pointer",fontSize:16,padding:4}}>🗑</button>
+                </div>
+              ))}
+              {(()=>{
+                const [newCat,setNewCat] = [window._nc||(window._nc={}),v=>{window._nc=v;window.dispatchEvent(new Event('_nc'));}];
+                // Use local state via a small inner component
+                function AddCatForm() {
+                  const [form,setForm] = useState({label:'',icon:'📌',color:'#6B6560',bg:'#F0EDE8'});
+                  const ICONS=['📌','🏋️','🎵','🎮','💅','🍺','🚬','📚','🎨','🌿','🎪','🛒','💊','🐕','🏖️','🎯','🧘','🍕','☕','🚀'];
+                  const COLORS=[
+                    {color:'#C4603A',bg:'#F5E6DF'},{color:'#3D8B6E',bg:'#EAF4EF'},{color:'#2C3E6B',bg:'#E8EBF5'},
+                    {color:'#7B5EA7',bg:'#F0EBF8'},{color:'#B8860B',bg:'#FBF4E0'},{color:'#C43A3A',bg:'#F5E6E6'},
+                    {color:'#5A6E7A',bg:'#EDF1F4'},{color:'#8A2C6B',bg:'#F7E0EF'},{color:'#4A7A3D',bg:'#E8F4E5'},
+                  ];
+                  return <div style={{marginTop:16,padding:"14px",background:C.surface2,borderRadius:12,border:`1px solid ${C.border2}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}>New Category</div>
+                    <input value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} placeholder="Category name"
+                      style={{width:"100%",boxSizing:"border-box",background:C.surface,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"8px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",marginBottom:10}}/>
+                    <div style={{fontSize:11,color:C.text3,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Icon</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                      {ICONS.map(i=><button key={i} onClick={()=>setForm(p=>({...p,icon:i}))}
+                        style={{width:32,height:32,borderRadius:8,border:`2px solid ${form.icon===i?C.terra:C.border}`,background:form.icon===i?C.terra3:C.surface,fontSize:16,cursor:"pointer"}}>{i}</button>)}
+                    </div>
+                    <div style={{fontSize:11,color:C.text3,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Color</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                      {COLORS.map(cl=><button key={cl.color} onClick={()=>setForm(p=>({...p,color:cl.color,bg:cl.bg}))}
+                        style={{width:24,height:24,borderRadius:"50%",background:cl.color,border:`2px solid ${form.color===cl.color?"#000":"transparent"}`,cursor:"pointer"}}/>)}
+                    </div>
+                    <button onClick={async()=>{
+                      if(!form.label.trim())return;
+                      const res=await apiFetch('/api/categories',{method:'POST',body:JSON.stringify(form)});
+                      if(res?.ok){
+                        const newId=res.id;
+                        setCustomCategories(p=>[...p,{...form,id:newId}]);
+                        setForm({label:'',icon:'📌',color:'#6B6560',bg:'#F0EDE8'});
+                      }
+                    }} style={{width:"100%",background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                      Add Category
+                    </button>
+                  </div>;
+                }
+                return <AddCatForm/>;
+              })()}
             </div>
           </div>;
         })()}
@@ -1468,7 +1528,7 @@ export default function Finance({onBack}) {
             ?<div style={{background:C.surface,borderRadius:16,padding:40,textAlign:"center",color:C.text3,fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>No transactions for this month.</div>
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
               {expenses.sort((a,b)=>b.amount-a.amount).map((tx,i)=>{
-                const cat=CATEGORIES.find(c=>c.id===tx.category)||CATEGORIES[CATEGORIES.length-1];
+                const cat=allCats.find(c=>c.id===tx.category)||allCats[allCats.length-1];
                 return <div key={tx.id} style={{display:"flex",alignItems:"center",gap:mobile?10:16,padding:mobile?"12px 14px":"14px 20px",borderBottom:i<expenses.length-1?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDFAF7"}}>
                   <div style={{width:mobile?32:38,height:mobile?32:38,borderRadius:10,background:cat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:mobile?15:18,flexShrink:0}}>{cat.icon}</div>
                   <div style={{flex:1,minWidth:0}}>
@@ -1487,7 +1547,7 @@ export default function Finance({onBack}) {
                           setEditTx(null);
                         }}
                         onBlur={()=>setEditTx(null)} autoFocus>
-                        {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                        {allCats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
                       </select>
                       :<div style={{display:"flex",gap:6,marginTop:2,justifyContent:"flex-end",alignItems:"center"}}>
                         <button onClick={()=>{receiptRef.current.dataset.txid=tx.id;receiptRef.current.click();}}
@@ -1509,7 +1569,7 @@ export default function Finance({onBack}) {
                   <div style={{padding:"10px 14px 10px 58px",background:"#FDFAF7",borderTop:`1px solid ${C.border}`}}>
                     <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:6}}>Receipt Items</div>
                     {receiptItems[tx.id].map((item,idx)=>{
-                      const icat=CATEGORIES.find(c=>c.id===item.category)||CATEGORIES[CATEGORIES.length-1];
+                      const icat=allCats.find(c=>c.id===item.category)||allCats[allCats.length-1];
                       return <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:idx<receiptItems[tx.id].length-1?`1px solid ${C.border}`:"none"}}>
                         <span style={{fontSize:12,color:C.text}}>{icat.icon} {item.name}</span>
                         <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmt(item.amount)}</span>
