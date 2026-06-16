@@ -30,12 +30,15 @@ async function initDB(db) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, income REAL DEFAULT 0, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, email TEXT NOT NULL, month_key TEXT NOT NULL, date TEXT, merchant TEXT, amount REAL, category TEXT, source TEXT, created_at TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS debts (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, balance REAL, original_balance REAL, payment REAL, rate REAL, deadline TEXT, deadline_date TEXT, type TEXT, priority INTEGER, note TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS debts (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, balance REAL, original_balance REAL, payment REAL, rate REAL, deadline TEXT, deadline_date TEXT, type TEXT, priority INTEGER, note TEXT, color TEXT, bg TEXT, account_pattern TEXT, created_at TEXT DEFAULT (datetime('now')));
+    CREATE INDEX IF NOT EXISTS idx_debts_account ON debts(account_pattern);
     CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key));
     CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
   `);
+  // Migrate existing tables — ignore errors if column already exists
+  try { await db.exec(`ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`); } catch(_){}
 }
 
 async function ensureUser(db, email) {
@@ -160,7 +163,7 @@ async function handleRequest(request, env) {
     if (path === '/api/debts' && method === 'POST') {
       const body = await request.json();
       const id = body.id||crypto.randomUUID();
-      await env.DB.prepare('INSERT OR REPLACE INTO debts (id,email,name,balance,original_balance,payment,rate,deadline,deadline_date,type,priority,note,color,bg) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.balance,body.original_balance||body.balance,body.payment,body.rate||0,body.deadline||'ongoing',body.deadline_date||null,body.type||'loan',body.priority||99,body.note||'',body.color||'#C4603A',body.bg||'#F5E6DF').run();
+      await env.DB.prepare('INSERT OR REPLACE INTO debts (id,email,name,balance,original_balance,payment,rate,deadline,deadline_date,type,priority,note,color,bg,account_pattern) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.balance,body.original_balance||body.balance,body.payment,body.rate||0,body.deadline||'ongoing',body.deadline_date||null,body.type||'loan',body.priority||99,body.note||'',body.color||'#C4603A',body.bg||'#F5E6DF',body.account_pattern||'').run();
       return json({ok:true,id});
     }
     if (path.startsWith('/api/debts/') && path !== '/api/debts/reorder' && method === 'PUT') {
@@ -175,6 +178,7 @@ async function handleRequest(request, env) {
       if (body.deadline_date!==undefined){fields.push('deadline_date=?');values.push(body.deadline_date);}
       if (body.priority!==undefined){fields.push('priority=?');values.push(body.priority);}
       if (body.note!==undefined){fields.push('note=?');values.push(body.note);}
+      if (body.account_pattern!==undefined){fields.push('account_pattern=?');values.push(body.account_pattern);}
       if (!fields.length) return err('nothing to update');
       values.push(debtId, user);
       await env.DB.prepare(`UPDATE debts SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();

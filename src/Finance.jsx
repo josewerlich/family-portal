@@ -176,12 +176,19 @@ function detectDebtPayments(txs, debts) {
     const desc = tx.merchant.toUpperCase();
     for (const debt of debts) {
       const name = debt.name.toUpperCase();
-      // Find matching pattern based on debt name keywords
       let matched = false;
-      for (const [key, pattern] of Object.entries(DEBT_MATCH_PATTERNS)) {
-        if (name.includes(key) && pattern.test(desc)) {
-          matched = true;
-          break;
+      // Match by account pattern first (e.g. last 4 digits "1144")
+      if (debt.account_pattern && debt.account_pattern.trim()) {
+        const pattern = debt.account_pattern.trim();
+        matched = desc.includes(pattern.toUpperCase());
+      }
+      // Fall back to name-based pattern matching
+      if (!matched) {
+        for (const [key, pattern] of Object.entries(DEBT_MATCH_PATTERNS)) {
+          if (name.includes(key) && pattern.test(desc)) {
+            matched = true;
+            break;
+          }
         }
       }
       if (matched) {
@@ -326,8 +333,9 @@ function DebtCard({debt, onUpdate, onDelete, onDragStart, onDragOver, onDrop, is
             {label:"Interest Rate %",key:"rate",type:"number"},
             {label:"Deadline",key:"deadline",type:"text"},
             {label:"Deadline Date (YYYY-MM-DD)",key:"deadline_date",type:"text"},
+            {label:"Account # / Payment Keyword",key:"account_pattern",type:"text"},
           ].map(f=>(
-            <div key={f.key} style={{gridColumn:f.key==="deadline_date"?"1/-1":"auto"}}>
+            <div key={f.key} style={{gridColumn:(f.key==="deadline_date"||f.key==="account_pattern")?"1/-1":"auto"}}>
               <div style={{fontSize:10,color:C.text3,fontFamily:"'DM Sans',sans-serif",marginBottom:3,textTransform:"uppercase",letterSpacing:.5}}>{f.label}</div>
               <input type={f.type} value={editData[f.key]||""} onChange={e=>setEditData(p=>({...p,[f.key]:f.type==="number"?parseFloat(e.target.value):e.target.value}))}
                 style={{width:"100%",boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"6px 10px",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}/>
@@ -367,7 +375,7 @@ function AddDebtModal({onAdd, onClose}) {
   const [mode, setMode] = useState("ai"); // "ai" or "manual"
   const [loading, setLoading] = useState(false);
   const [extracted, setExtracted] = useState(null);
-  const [form, setForm] = useState({name:"",balance:"",payment:"",rate:"",deadline:"ongoing",deadline_date:"",note:""});
+  const [form, setForm] = useState({name:"",balance:"",payment:"",rate:"",deadline:"ongoing",deadline_date:"",note:"",account_pattern:""});
   const fileRef = useRef();
   const camRef = useRef();
 
@@ -467,6 +475,7 @@ function AddDebtModal({onAdd, onClose}) {
               {label:"Interest Rate %",key:"rate",type:"number",placeholder:"e.g. 7.37 (0 for promo)"},
               {label:"Deadline",key:"deadline",type:"text",placeholder:"e.g. Dec 2027 or ongoing"},
               {label:"Deadline Date (YYYY-MM-DD)",key:"deadline_date",type:"text",placeholder:"e.g. 2027-12-06"},
+              {label:"Account # / Payment Keyword",key:"account_pattern",type:"text",placeholder:"e.g. 1144 or ROCKET MORTGAGE"},
             ].map(f=>(
               <div key={f.key}>
                 <div style={{fontSize:11,color:C.text3,fontFamily:"'DM Sans',sans-serif",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{f.label}</div>
