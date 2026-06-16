@@ -651,10 +651,14 @@ export default function Finance({onBack}) {
   const [showHouseholdPanel, setShowHouseholdPanel] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [darkMode, setDarkMode] = useState(()=>localStorage.getItem('darkMode')==='1');
-  const [sortTx, setSortTx] = useState('amount');
+  const [sortTx, setSortTx] = useState('date');
+  const [txSearch, setTxSearch] = useState('');
+  const [undoToast, setUndoToast] = useState(null);
+  const [yoyData, setYoyData] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [displayNameEdit, setDisplayNameEdit] = useState('');
+  const budgetSaveTimer = useRef(null);
   const [receiptFirstLoading, setReceiptFirstLoading] = useState(false);
   const [receiptFirstResult, setReceiptFirstResult] = useState(null); // {merchant,date,total,items,txId}
   const receiptFirstRef = useRef();
@@ -703,8 +707,30 @@ export default function Finance({onBack}) {
   }, [monthKey, apiReady]);
 
   useEffect(() => {
-    if (tab === 'dashboard') loadMonthlyData();
-  }, [tab, selectedYear]);
+    if (tab === 'dashboard') { loadMonthlyData(); loadYoY(); }
+  }, [tab, selectedYear, selectedMonth]);
+
+  const loadYoY = async () => {
+    const curYear = now.getFullYear();
+    const mm = String(selectedMonth + 1).padStart(2, '0');
+    const [cur, prev] = await Promise.all([
+      apiFetch(`/api/transactions?month=${curYear}-${mm}`),
+      apiFetch(`/api/transactions?month=${curYear - 1}-${mm}`),
+    ]);
+    const calcSpend = arr => (Array.isArray(arr)?arr:[]).filter(t=>t.amount>0&&!/credit/i.test(t.merchant)&&t.category!=='income').reduce((s,t)=>s+t.amount,0);
+    setYoyData({cur:calcSpend(cur),prev:calcSpend(prev),month:MONTHS[selectedMonth],curYear,prevYear:curYear-1});
+  };
+
+  const showUndo = (message, onUndo) => {
+    setUndoToast(p=>{ if(p?.timer) clearTimeout(p.timer); return null; });
+    const timer = setTimeout(()=>setUndoToast(null), 10000);
+    setUndoToast({message, onUndo, timer});
+  };
+
+  const autoSaveBudgets = (newBudgets) => {
+    if (budgetSaveTimer.current) clearTimeout(budgetSaveTimer.current);
+    budgetSaveTimer.current = setTimeout(()=>apiFetch(`/api/monthly?month=${monthKey}`,{method:'PUT',body:JSON.stringify({income,budgets:newBudgets})}), 900);
+  };
 
   const loadMonthlyData = async () => {
     const result = {};
@@ -1223,6 +1249,16 @@ Rules:
       {showAddDebt && <AddDebtModal onAdd={addDebt} onClose={()=>setShowAddDebt(false)}/>}
       {debtPaymentMatches && <DebtPaymentModal matches={debtPaymentMatches} onConfirm={confirmDebtPayments} onClose={()=>setDebtPaymentMatches(null)}/>}
 
+      {undoToast && (
+        <div style={{position:"fixed",bottom:mobile?80:24,left:"50%",transform:"translateX(-50%)",zIndex:3000,background:"#1A1714",color:"#fff",borderRadius:12,padding:"12px 20px",display:"flex",alignItems:"center",gap:16,boxShadow:"0 8px 32px rgba(0,0,0,0.3)",fontFamily:"'DM Sans',sans-serif",minWidth:260,maxWidth:"90vw"}}>
+          <span style={{fontSize:13,flex:1}}>{undoToast.message}</span>
+          <button onClick={()=>{undoToast.onUndo();clearTimeout(undoToast.timer);setUndoToast(null);}}
+            style={{background:C.terra,color:"#fff",border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>Undo</button>
+          <button onClick={()=>{clearTimeout(undoToast.timer);setUndoToast(null);}}
+            style={{background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:16,padding:"0 4px"}}>✕</button>
+        </div>
+      )}
+
       {/* SETTINGS PANEL */}
       {showSettings && (
         <div style={{position:"fixed",inset:0,background:"rgba(26,23,20,0.5)",zIndex:2000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSettings(false)}>
@@ -1327,7 +1363,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.41</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.42</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1354,13 +1390,26 @@ Rules:
         )}
       </div>
 
-      {/* TABS */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:mobile?"10px 14px":"12px 40px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none"}}>
-        {[["dashboard","Overview"],["budget","Budget"],["debts","Debts"],["savings","Savings"],["insights","Insights"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
-          <button key={t} style={T(t)} onClick={()=>setTab(t)}>{l}</button>)}
-      </div>
+      {/* TABS — desktop horizontal scroll, mobile bottom nav */}
+      {!mobile && (
+        <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"12px 40px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none"}}>
+          {[["dashboard","Overview"],["budget","Budget"],["debts","Debts"],["savings","Savings"],["insights","Insights"],["transactions","Transactions"],["upload","Upload"]].map(([t,l])=>
+            <button key={t} style={T(t)} onClick={()=>setTab(t)}>{l}</button>)}
+        </div>
+      )}
+      {mobile && (
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"6px 0 max(6px,env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(26,23,20,0.08)"}}>
+          {[["dashboard","🏠","Home"],["budget","💰","Budget"],["debts","💳","Debts"],["savings","🎯","Save"],["transactions","📋","Txns"],["upload","📤","Upload"]].map(([t,icon,label])=>(
+            <button key={t} onClick={()=>setTab(t)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"4px 6px",minWidth:44}}>
+              <span style={{fontSize:20}}>{icon}</span>
+              <span style={{fontSize:9,fontWeight:tab===t?700:500,color:tab===t?C.terra:C.text3,fontFamily:"'DM Sans',sans-serif"}}>{label}</span>
+              {tab===t&&<div style={{width:4,height:4,borderRadius:"50%",background:C.terra,marginTop:1}}/>}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div style={{padding:mobile?"16px":"32px 40px",maxWidth:1200,margin:"0 auto"}}>
+      <div style={{padding:mobile?"16px":"32px 40px",paddingBottom:mobile?"90px":undefined,maxWidth:1200,margin:"0 auto"}}>
 
         {/* DASHBOARD */}
         {tab==="dashboard"&&<div>
@@ -1508,25 +1557,44 @@ Rules:
               </div>
             );
           })()}
+
+          {/* Year-over-Year */}
+          {yoyData && (yoyData.cur > 0 || yoyData.prev > 0) && (
+            <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginTop:mobile?14:20}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif",marginBottom:2}}>📅 Year-over-Year: {yoyData.month}</div>
+              <div style={{fontSize:11,color:C.text3,marginBottom:14}}>{yoyData.prevYear} vs {yoyData.curYear}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div style={{background:C.surface2,borderRadius:12,padding:"14px 16px"}}>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:4}}>{yoyData.prevYear}</div>
+                  <div style={{fontSize:20,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>{fmt(yoyData.prev)}</div>
+                </div>
+                <div style={{background:yoyData.cur>yoyData.prev?C.red2:C.green2,borderRadius:12,padding:"14px 16px"}}>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:4}}>{yoyData.curYear}</div>
+                  <div style={{fontSize:20,fontWeight:700,color:yoyData.cur>yoyData.prev?C.red:C.green,fontFamily:"'Sora',sans-serif"}}>{fmt(yoyData.cur)}</div>
+                </div>
+              </div>
+              {yoyData.prev > 0 && yoyData.cur > 0 && (
+                <div style={{padding:"10px 14px",background:yoyData.cur>yoyData.prev?C.red2:C.green2,borderRadius:10,fontSize:12,color:yoyData.cur>yoyData.prev?C.red:C.green,fontWeight:700}}>
+                  {yoyData.cur>yoyData.prev
+                    ?`⬆ ${fmt(yoyData.cur-yoyData.prev)} more than ${yoyData.prevYear} (+${Math.round(((yoyData.cur-yoyData.prev)/yoyData.prev)*100)}%)`
+                    :`⬇ ${fmt(yoyData.prev-yoyData.cur)} less than ${yoyData.prevYear} (-${Math.round(((yoyData.prev-yoyData.cur)/yoyData.prev)*100)}%)`}
+                </div>
+              )}
+            </div>
+          )}
         </div>}
 
         {/* BUDGET */}
         {tab==="budget"&&(()=>{
           const effectiveBudget = (id) => monthBudgets[id] || BUDGET[id] || 0;
           const totalBudgeted = allCats.reduce((s,c)=>s+effectiveBudget(c.id),0);
-          const saveBudgets = async () => {
-            await apiFetch(`/api/monthly?month=${monthKey}`, {method:'PUT', body:JSON.stringify({income, budgets: monthBudgets})});
-            alert('Budget saved!');
-          };
           return <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
               <div>
                 <div style={{fontSize:mobile?18:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Monthly Budget</div>
                 <div style={{fontSize:12,color:C.text3,marginTop:2}}>{MONTHS[selectedMonth]} {selectedYear} · Total budgeted: {fmt(totalBudgeted)}</div>
               </div>
-              <button onClick={saveBudgets} style={{background:C.green,color:"#fff",border:"none",borderRadius:12,padding:"11px 24px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
-                Save Budget
-              </button>
+              <div style={{fontSize:12,color:C.text3,fontStyle:"italic"}}>Auto-saves as you type</div>
             </div>
             <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,marginBottom:16}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 100px 100px",gap:8,marginBottom:10,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
@@ -1546,7 +1614,7 @@ Rules:
                       <div style={{width:`${budget>0?Math.min(100,Math.round((actual/budget)*100)):0}%`,height:"100%",background:over?C.red:c.color,borderRadius:99}}/>
                     </div>
                   </div>
-                  <input type="number" value={budget} onChange={e=>setMonthBudgets(p=>({...p,[c.id]:parseFloat(e.target.value)||0}))}
+                  <input type="number" value={budget} onChange={e=>{const v=parseFloat(e.target.value)||0;const nb={...monthBudgets,[c.id]:v};setMonthBudgets(nb);autoSaveBudgets(nb);}}
                     style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:13,width:"100%",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"}}/>
                   <div style={{fontSize:13,fontWeight:600,color:over?C.red:actual>0?c.color:C.text3,fontFamily:"'DM Sans',sans-serif",textAlign:"right"}}>{actual>0?fmt(actual):"—"}</div>
                 </div>;
@@ -1805,17 +1873,19 @@ Rules:
                           <span style={{fontSize:11,color:C.text3}}>{fmt(remaining)} to go</span>
                         </div>
                       </div>
-                      <div style={{display:"flex",gap:8,marginTop:12}}>
-                        <input type="number" placeholder="Add savings..." style={{flex:1,background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"'Sora',sans-serif"}}
-                          onKeyDown={async(e)=>{
-                            if(e.key==='Enter'){
-                              const amt = parseFloat(e.target.value);
-                              if(!isNaN(amt) && amt > 0){
-                                await updateGoal(g.id, {current_amount: (g.current_amount||0) + amt});
-                                e.target.value = '';
-                              }
-                            }
-                          }}/>
+                      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:12}}>
+                        <div style={{display:"flex",gap:6}}>
+                          <input type="number" placeholder="Add amount..." id={`add-${g.id}`}
+                            style={{flex:1,background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",color:C.text}}/>
+                          <button onClick={async()=>{const el=document.getElementById(`add-${g.id}`);const amt=parseFloat(el?.value);if(!isNaN(amt)&&amt>0){await updateGoal(g.id,{current_amount:(g.current_amount||0)+amt});if(el)el.value='';}}}
+                            style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>+ Add</button>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <input type="number" placeholder="Set total to..." id={`set-${g.id}`}
+                            style={{flex:1,background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",color:C.text}}/>
+                          <button onClick={async()=>{const el=document.getElementById(`set-${g.id}`);const amt=parseFloat(el?.value);if(!isNaN(amt)&&amt>=0){await updateGoal(g.id,{current_amount:amt});if(el)el.value='';}}}
+                            style={{background:C.surface2,color:C.text2,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Set</button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1825,6 +1895,10 @@ Rules:
 
         {/* TRANSACTIONS */}
         {tab==="transactions"&&<div>
+          <div style={{marginBottom:10}}>
+            <input value={txSearch} onChange={e=>setTxSearch(e.target.value)} placeholder="🔍 Search transactions..."
+              style={{width:"100%",boxSizing:"border-box",background:C.surface,border:`1px solid ${C.border2}`,borderRadius:10,padding:"10px 14px",fontSize:13,color:C.text,fontFamily:"'DM Sans',sans-serif"}}/>
+          </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
             <div>
               <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{MONTHS[selectedMonth]} Transactions</div>
@@ -1853,7 +1927,7 @@ Rules:
           {expenses.length===0
             ?<div style={{background:C.surface,borderRadius:16,padding:40,textAlign:"center",color:C.text3,fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>No transactions for this month.</div>
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-              {[...expenses].sort(sortTx==='amount'?(a,b)=>b.amount-a.amount:(a,b)=>b.date.localeCompare(a.date)).map((tx,i)=>{
+              {[...expenses].filter(t=>!txSearch||t.merchant.toLowerCase().includes(txSearch.toLowerCase())||t.category.toLowerCase().includes(txSearch.toLowerCase())).sort(sortTx==='amount'?(a,b)=>b.amount-a.amount:(a,b)=>b.date.localeCompare(a.date)).map((tx,i)=>{
                 const cat=allCats.find(c=>c.id===tx.category)||allCats[allCats.length-1];
                 return <div key={tx.id}><div style={{display:"flex",alignItems:"center",gap:mobile?10:16,padding:mobile?"12px 14px":"14px 20px",borderBottom:(i<expenses.length-1&&expandedTx!==tx.id)?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDFAF7"}}>
                   <div style={{width:mobile?32:38,height:mobile?32:38,borderRadius:10,background:cat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:mobile?15:18,flexShrink:0}}>{cat.icon}</div>
@@ -1892,7 +1966,11 @@ Rules:
                             {receiptItems[tx.id]?.length?`${receiptItems[tx.id].length} items`:'🧾'} {expandedTx===tx.id?"▲":"▼"}
                           </button>}
                         <button onClick={()=>setEditTx(tx.id)} style={{fontSize:10,color:C.text3,background:"none",border:"none",cursor:"pointer",padding:0}}>✏️</button>
-                        <button onClick={async()=>{await apiFetch(`/api/transactions?id=${tx.id}`,{method:'DELETE'});setTxs(p=>p.filter(t=>t.id!==tx.id));}} style={{fontSize:10,color:C.red,background:"none",border:"none",cursor:"pointer",padding:0}}>✕</button>
+                        <button onClick={()=>{
+                          setTxs(p=>p.filter(t=>t.id!==tx.id));
+                          const rollback = setTimeout(()=>apiFetch(`/api/transactions?id=${tx.id}`,{method:'DELETE'}),10000);
+                          showUndo(`Deleted "${tx.merchant}"`, ()=>{clearTimeout(rollback);setTxs(p=>[...p,tx]);});
+                        }} style={{fontSize:10,color:C.red,background:"none",border:"none",cursor:"pointer",padding:0}}>✕</button>
                       </div>}
                   </div>
                 </div>
