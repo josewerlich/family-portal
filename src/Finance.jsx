@@ -748,16 +748,7 @@ export default function Finance({onBack}) {
     // Load month-specific income and budgets if available
     if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
     if (monthData?.budgets) setMonthBudgets(typeof monthData.budgets==='string' ? JSON.parse(monthData.budgets) : monthData.budgets);
-    // Load persisted receipt items for this month's transactions
-    const txsWithReceipts = txArr.filter(t => t.has_receipt);
-    if (txsWithReceipts.length > 0) {
-      const allItems = {};
-      await Promise.all(txsWithReceipts.map(async t => {
-        const items = await apiFetch(`/api/receipt-items?tx_id=${t.id}`);
-        if (Array.isArray(items) && items.length > 0) allItems[t.id] = items;
-      }));
-      setReceiptItems(prev => ({...prev, ...allItems}));
-    }
+    // Receipt items are loaded lazily on click — no preload needed
     // Auto-apply detected payments for this month
     if (debts.length > 0 && txArr.length > 0) {
       const matches = detectDebtPayments(txArr, debts);
@@ -1058,7 +1049,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.33</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.34</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1580,19 +1571,17 @@ Rules:
                           title="Add receipt" style={{fontSize:10,color:C.terra,background:"none",border:"none",cursor:"pointer",padding:0}}>
                           {uploadingReceipt===tx.id?"⏳":"🧾+"}
                         </button>
-                        {(receiptItems[tx.id]?.length>0||tx.has_receipt)&&(
-                          <button onClick={async()=>{
+                        {(receiptItems[tx.id]?.length>0||tx.has_receipt)&&<button onClick={async()=>{
                             if (expandedTx===tx.id){setExpandedTx(null);return;}
-                            if (!receiptItems[tx.id] && tx.has_receipt) {
+                            if (!receiptItems[tx.id]?.length) {
                               const items=await apiFetch(`/api/receipt-items?tx_id=${tx.id}`);
-                              if(Array.isArray(items)) setReceiptItems(prev=>({...prev,[tx.id]:items}));
+                              if(Array.isArray(items)&&items.length) setReceiptItems(prev=>({...prev,[tx.id]:items}));
                             }
                             setExpandedTx(tx.id);
                           }}
                             style={{fontSize:10,color:C.green,background:C.green2,border:`1px solid ${C.green}44`,borderRadius:6,cursor:"pointer",padding:"1px 5px",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
-                            {receiptItems[tx.id]?.length||'…'} items {expandedTx===tx.id?"▲":"▼"}
-                          </button>
-                        )}
+                            {receiptItems[tx.id]?.length?`${receiptItems[tx.id].length} items`:'🧾'} {expandedTx===tx.id?"▲":"▼"}
+                          </button>}
                         <button onClick={()=>setEditTx(tx.id)} style={{fontSize:10,color:C.text3,background:"none",border:"none",cursor:"pointer",padding:0}}>✏️</button>
                         <button onClick={async()=>{await apiFetch(`/api/transactions?id=${tx.id}`,{method:'DELETE'});setTxs(p=>p.filter(t=>t.id!==tx.id));}} style={{fontSize:10,color:C.red,background:"none",border:"none",cursor:"pointer",padding:0}}>✕</button>
                       </div>}
