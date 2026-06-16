@@ -667,7 +667,7 @@ export default function Finance({onBack}) {
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
-  const expenses = txs.filter(t=>t.amount>0);
+  const expenses = txs.filter(t=>t.amount>0 && !/credit/i.test(t.merchant));
   const totalSpend = expenses.reduce((s,t)=>s+t.amount,0);
   const net = income - totalSpend;
   const byCat = {};
@@ -1317,20 +1317,24 @@ export default function Finance({onBack}) {
               </button>
             </div>
             {/* Detected income transactions */}
-            {txs.filter(t=>t.type==='income').length>0 && (
-              <div style={{marginBottom:14,padding:"10px 12px",background:C.green2,borderRadius:10,border:`1px solid ${C.green}33`}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-detected from statements</div>
-                {txs.filter(t=>t.type==='income').sort((a,b)=>b.amount-a.amount).map(t=>(
-                  <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",fontSize:12}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.merchant}</div>
-                      <div style={{fontSize:10,color:C.text3}}>{t.date} · {t.source}</div>
+            {(()=>{
+              const incomeTxList = txs.filter(t=>t.type==='income' || (t.amount>0 && /credit/i.test(t.merchant)));
+              if (!incomeTxList.length) return null;
+              return (
+                <div style={{marginBottom:14,padding:"10px 12px",background:C.green2,borderRadius:10,border:`1px solid ${C.green}33`}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-detected from statements</div>
+                  {incomeTxList.sort((a,b)=>b.amount-a.amount).map(t=>(
+                    <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",fontSize:12}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.merchant}</div>
+                        <div style={{fontSize:10,color:C.text3}}>{t.date} · {t.source}</div>
+                      </div>
+                      <div style={{fontWeight:700,color:C.green,fontFamily:"'Sora',sans-serif"}}>+{fmt(t.amount)}</div>
                     </div>
-                    <div style={{fontWeight:700,color:C.green,fontFamily:"'Sora',sans-serif"}}>+{fmt(t.amount)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 120px 28px",gap:8,marginBottom:6}}>
               {["Description","Monthly Amount",""].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
             </div>
