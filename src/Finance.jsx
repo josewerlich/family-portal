@@ -748,6 +748,16 @@ export default function Finance({onBack}) {
     // Load month-specific income and budgets if available
     if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
     if (monthData?.budgets) setMonthBudgets(typeof monthData.budgets==='string' ? JSON.parse(monthData.budgets) : monthData.budgets);
+    // Load persisted receipt items for this month's transactions
+    const txsWithReceipts = txArr.filter(t => t.has_receipt);
+    if (txsWithReceipts.length > 0) {
+      const allItems = {};
+      await Promise.all(txsWithReceipts.map(async t => {
+        const items = await apiFetch(`/api/receipt-items?tx_id=${t.id}`);
+        if (Array.isArray(items) && items.length > 0) allItems[t.id] = items;
+      }));
+      setReceiptItems(prev => ({...prev, ...allItems}));
+    }
     // Auto-apply detected payments for this month
     if (debts.length > 0 && txArr.length > 0) {
       const matches = detectDebtPayments(txArr, debts);
@@ -966,15 +976,31 @@ export default function Finance({onBack}) {
     setUploadingReceipt(txId);
     try {
       const base64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.readAsDataURL(file);});
-      const cats = allCats.map(c=>c.id).join(', ');
-      const sys = `Parse this receipt and return ONLY a JSON array of line items. Each: {"name":"item name","amount":number,"category":"one of [${cats}]"}. Only actual products/items, no tax or totals.`;
+      // Normalize media type — Claude only supports jpeg/png/gif/webp/pdf
+      let mediaType = file.type || 'image/jpeg';
+      if (['image/heic','image/heif','image/tiff'].includes(mediaType)) mediaType = 'image/jpeg';
+      if (!['image/jpeg','image/png','image/gif','image/webp','application/pdf'].includes(mediaType)) mediaType = 'image/jpeg';
+      const cats = allCats.map(c=>`${c.id} (${c.label})`).join(', ');
+      const sys = `Parse this receipt image and return ONLY a JSON array of purchased line items. Each object: {"name":"short item name","amount":number,"category":"best matching category id from: ${allCats.map(c=>c.id).join(', ')}"}.
+Rules:
+- Include every product/item with its price
+- Skip subtotals, tax, tips, and totals
+- For groceries from stores like Costco/Walmart/Meijer, identify what each item actually is (produce, meat, household, etc.) and pick the best category
+- Keep item names short (2-4 words max)`;
       const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1500,system:sys,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type.includes('pdf')?'application/pdf':file.type,data:base64}},{type:"text",text:"Parse all line items from this receipt."}]}]})
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:sys,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Parse all purchased line items from this receipt."}]}]})
       });
       const data = await res.json();
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       const text = data.content?.find(b=>b.type==="text")?.text||"[]";
-      const items = JSON.parse(text.replace(/\`\`\`json|\`\`\`/g,"").trim());
+      const items = JSON.parse(text.replace(/```json|```/g,"").trim());
+      if (!Array.isArray(items) || items.length === 0) throw new Error("No items found in receipt");
+      // Save to DB
+      await apiFetch('/api/receipt-items', {method:'POST', body:JSON.stringify({tx_id:txId, items})});
+      // Mark transaction as having a receipt
+      await apiFetch(`/api/transactions/${txId}`, {method:'PUT', body:JSON.stringify({has_receipt:true})});
+      setTxs(prev=>prev.map(t=>t.id===txId?{...t,has_receipt:1}:t));
       setReceiptItems(prev=>({...prev,[txId]:items}));
       setExpandedTx(txId);
     } catch(e) { alert("Could not parse receipt: "+e.message); }
@@ -1032,7 +1058,7 @@ export default function Finance({onBack}) {
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.31</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.32</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1554,10 +1580,10 @@ export default function Finance({onBack}) {
                           title="Add receipt" style={{fontSize:10,color:C.terra,background:"none",border:"none",cursor:"pointer",padding:0}}>
                           {uploadingReceipt===tx.id?"⏳":"🧾+"}
                         </button>
-                        {receiptItems[tx.id]?.length>0&&(
+                        {(receiptItems[tx.id]?.length>0||tx.has_receipt)&&(
                           <button onClick={()=>setExpandedTx(expandedTx===tx.id?null:tx.id)}
-                            style={{fontSize:10,color:C.green,background:"none",border:"none",cursor:"pointer",padding:0,fontWeight:700}}>
-                            {expandedTx===tx.id?"▲":"▼"}{receiptItems[tx.id].length}
+                            style={{fontSize:10,color:C.green,background:C.green2,border:`1px solid ${C.green}44`,borderRadius:6,cursor:"pointer",padding:"1px 5px",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
+                            {receiptItems[tx.id]?.length||'…'} items {expandedTx===tx.id?"▲":"▼"}
                           </button>
                         )}
                         <button onClick={()=>setEditTx(tx.id)} style={{fontSize:10,color:C.text3,background:"none",border:"none",cursor:"pointer",padding:0}}>✏️</button>
@@ -1566,17 +1592,35 @@ export default function Finance({onBack}) {
                   </div>
                 </div>
                 {expandedTx===tx.id&&receiptItems[tx.id]?.length>0&&(
-                  <div style={{padding:"10px 14px 10px 58px",background:"#FDFAF7",borderTop:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:6}}>Receipt Items</div>
+                  <div style={{padding:"12px 16px",background:"#FDFAF7",borderTop:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:10}}>Receipt Items — {receiptItems[tx.id].length} items</div>
                     {receiptItems[tx.id].map((item,idx)=>{
                       const icat=allCats.find(c=>c.id===item.category)||allCats[allCats.length-1];
-                      return <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:idx<receiptItems[tx.id].length-1?`1px solid ${C.border}`:"none"}}>
-                        <span style={{fontSize:12,color:C.text}}>{icat.icon} {item.name}</span>
-                        <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmt(item.amount)}</span>
+                      return <div key={idx} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:idx<receiptItems[tx.id].length-1?`1px solid ${C.border}`:"none"}}>
+                        <div style={{width:28,height:28,borderRadius:7,background:icat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{icat.icon}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</div>
+                          <select value={item.category||'other'}
+                            onChange={async e=>{
+                              const newCat = e.target.value;
+                              const updated = receiptItems[tx.id].map((it,i)=>i===idx?{...it,category:newCat}:it);
+                              setReceiptItems(prev=>({...prev,[tx.id]:updated}));
+                              // Persist: save all items with updated category
+                              await apiFetch('/api/receipt-items',{method:'POST',body:JSON.stringify({tx_id:tx.id,items:updated})});
+                            }}
+                            style={{fontSize:10,color:C.text3,background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif",maxWidth:120}}>
+                            {allCats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                          </select>
+                        </div>
+                        <div style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>{fmt(item.amount)}</div>
                       </div>;
                     })}
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:11,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Receipt total</span>
+                      <span style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{fmt(receiptItems[tx.id].reduce((s,it)=>s+it.amount,0))}</span>
+                    </div>
                   </div>
-                )};
+                )}
               })}
             </div>}
         </div>}

@@ -35,11 +35,14 @@ async function initDB(db) {
     CREATE TABLE IF NOT EXISTS monthly_settings (email TEXT NOT NULL, month_key TEXT NOT NULL, income REAL, PRIMARY KEY (email, month_key));
     CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS receipt_items (id TEXT PRIMARY KEY, tx_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, amount REAL, category TEXT, sort_order INTEGER DEFAULT 0);
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
+    CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
   `);
   // Migrate existing tables — ignore errors if column already exists
   try { await db.exec(`ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`); } catch(_){}
+  try { await db.exec(`ALTER TABLE transactions ADD COLUMN has_receipt INTEGER DEFAULT 0`); } catch(_){}
   try { await db.exec(`ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`); } catch(_){}
 }
 
@@ -155,7 +158,8 @@ async function handleRequest(request, env) {
     if (path.startsWith('/api/transactions/') && method === 'PUT') {
       const txId = path.split('/').pop();
       const body = await request.json();
-      await env.DB.prepare('UPDATE transactions SET category = ? WHERE id = ? AND email = ?').bind(body.category, txId, user).run();
+      if (body.category !== undefined) await env.DB.prepare('UPDATE transactions SET category = ? WHERE id = ? AND email = ?').bind(body.category, txId, user).run();
+      if (body.has_receipt !== undefined) await env.DB.prepare('UPDATE transactions SET has_receipt = ? WHERE id = ? AND email = ?').bind(body.has_receipt?1:0, txId, user).run();
       return json({ok:true});
     }
     if (path === '/api/debts' && method === 'GET') {
@@ -208,6 +212,28 @@ async function handleRequest(request, env) {
       const monthKey = url.searchParams.get('month');
       const body = await request.json();
       await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income,budgets) VALUES (?,?,?,?)').bind(user, monthKey, body.income, JSON.stringify(body.budgets||{})).run();
+      return json({ok:true});
+    }
+    // ── RECEIPT ITEMS ─────────────────────────────────────────────────
+    if (path === '/api/receipt-items' && method === 'GET') {
+      const txId = url.searchParams.get('tx_id');
+      const items = await env.DB.prepare('SELECT * FROM receipt_items WHERE tx_id=? AND email=? ORDER BY sort_order ASC').bind(txId, user).all();
+      return json(items.results||[]);
+    }
+    if (path === '/api/receipt-items' && method === 'POST') {
+      const body = await request.json();
+      // Replace all items for this tx_id
+      await env.DB.prepare('DELETE FROM receipt_items WHERE tx_id=? AND email=?').bind(body.tx_id, user).run();
+      for (let i=0; i<body.items.length; i++) {
+        const item = body.items[i];
+        await env.DB.prepare('INSERT INTO receipt_items (id,tx_id,email,name,amount,category,sort_order) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),body.tx_id,user,item.name,item.amount,item.category,i).run();
+      }
+      return json({ok:true});
+    }
+    if (path.startsWith('/api/receipt-items/') && method === 'PUT') {
+      const itemId = path.split('/').pop();
+      const body = await request.json();
+      await env.DB.prepare('UPDATE receipt_items SET category=? WHERE id=? AND email=?').bind(body.category, itemId, user).run();
       return json({ok:true});
     }
     // ── CUSTOM CATEGORIES ────────────────────────────────────────────
