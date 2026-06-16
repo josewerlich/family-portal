@@ -200,11 +200,14 @@ function detectDebtPayments(txs, debts) {
   return matches;
 }
 
-async function parseWithClaude(fileData, fileType, mode='transactions') {
+async function parseWithClaude(fileData, fileType, mode='transactions', customSys=null, customMsg=null) {
   const cats = CATEGORIES.map(c=>c.id).join(", ");
   let sys, userMsg;
 
-  if (mode === 'debt') {
+  if (customSys) {
+    sys = customSys;
+    userMsg = customMsg || "Extract data from this document.";
+  } else if (mode === 'debt') {
     sys = `You are a financial document parser. Extract loan/debt details from this document. Return ONLY a JSON object with: {"name":"loan name","balance":number,"original_balance":number,"payment":number,"rate":number,"deadline":"MMM YYYY or ongoing","deadline_date":"YYYY-MM-DD or null","type":"loan or deferred or promo","note":"brief description"}`;
     userMsg = "Extract the loan/debt details from this document.";
   } else {
@@ -633,6 +636,10 @@ export default function Finance({onBack}) {
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [displayNameEdit, setDisplayNameEdit] = useState('');
+  const [receiptFirstLoading, setReceiptFirstLoading] = useState(false);
+  const [receiptFirstResult, setReceiptFirstResult] = useState(null); // {merchant,date,total,items,txId}
+  const receiptFirstRef = useRef();
+  const receiptFirstCamRef = useRef();
   const inputRef = useRef();
 
   // Compute total monthly income from sources
@@ -887,6 +894,47 @@ export default function Finance({onBack}) {
   };
 
   // ── FILE UPLOAD ───────────────────────────────────────────────────────────
+  const uploadReceiptFirst = async (file) => {
+    setReceiptFirstLoading(true);
+    setReceiptFirstResult(null);
+    try {
+      const base64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.readAsDataURL(file);});
+      let mediaType = file.type || 'image/jpeg';
+      if (['image/heic','image/heif','image/tiff'].includes(mediaType)) mediaType = 'image/jpeg';
+      if (!['image/jpeg','image/png','image/gif','image/webp','application/pdf'].includes(mediaType)) mediaType = 'image/jpeg';
+      const catIds = allCats.map(c=>c.id).join(', ');
+      const sys = `You are a receipt parser. Extract from this receipt and return ONLY valid JSON with this exact shape:
+{"merchant":"Store Name","date":"MM/DD","total":number,"items":[{"name":"item name","amount":number,"category":"category_id"}]}
+Category IDs available: ${catIds}
+Rules: total = sum of all items. date format MM/DD. amounts are numbers (no $ sign).`;
+      const data = await parseWithClaude(base64, mediaType, 'receipt-first', sys, 'Extract merchant, date, total, and all line items from this receipt.');
+      const parsed = typeof data === 'string' ? JSON.parse(data.replace(/```json|```/g,'').trim()) : data;
+      // Create a transaction in DB for this receipt
+      const txId = crypto.randomUUID();
+      const mm = (parsed.date||'01/01').split('/')[0].padStart(2,'0');
+      const key = `${selectedYear}-${mm}`;
+      const topCat = parsed.items?.length > 0
+        ? (parsed.items.sort((a,b)=>b.amount-a.amount)[0].category || 'other')
+        : 'other';
+      await apiFetch(`/api/transactions?month=${key}`, {method:'POST', body:JSON.stringify([{
+        id: txId, date: parsed.date||'01/01', merchant: parsed.merchant||file.name,
+        amount: parsed.total || parsed.items?.reduce((s,i)=>s+i.amount,0) || 0,
+        category: topCat, source: 'Receipt', has_receipt: 1
+      }])});
+      // Save items
+      if (parsed.items?.length > 0) {
+        await apiFetch('/api/receipt-items', {method:'POST', body:JSON.stringify({tx_id:txId, items:parsed.items})});
+        setReceiptItems(prev=>({...prev,[txId]:parsed.items}));
+      }
+      await apiFetch(`/api/transactions/${txId}`, {method:'PUT', body:JSON.stringify({has_receipt:1})});
+      setReceiptFirstResult({...parsed, txId, month_key:key});
+      await loadTransactions();
+    } catch(e) {
+      alert(`Receipt parse failed: ${e.message}`);
+    }
+    setReceiptFirstLoading(false);
+  };
+
   const processFiles = async (files) => {
     setLoading(true); const l = [];
     const newTxs = [];
@@ -953,12 +1001,39 @@ export default function Finance({onBack}) {
 
       for (const key of monthKeys) {
         if (byMonth[key]?.length > 0) {
-          // Check existing transactions for duplicates
+          // Check existing transactions for duplicates and receipt-first matches
           const existing = await apiFetch(`/api/transactions?month=${key}`);
-          const existingKeys = new Set((existing||[]).map(t => `${t.date}|${t.merchant}|${t.amount}`));
-          const newOnly = byMonth[key].filter(t => !existingKeys.has(`${t.date}|${t.merchant}|${t.amount}`));
-          const skipped = byMonth[key].length - newOnly.length;
-          if (skipped > 0) l.push(`⊘ Skipped ${skipped} duplicate(s) for ${key}`); setLog([...l]);
+          const existingArr = existing || [];
+          const receiptTxs = existingArr.filter(t => t.source === 'Receipt');
+          const exactKeys = new Set(existingArr.filter(t=>t.source!=='Receipt').map(t => `${t.date}|${t.merchant}|${t.amount}`));
+          const newOnly = [];
+          let mergedCount = 0;
+          for (const t of byMonth[key]) {
+            if (exactKeys.has(`${t.date}|${t.merchant}|${t.amount}`)) continue; // exact dup
+            // Check if a receipt-first tx matches by amount (±2%) and date (±3 days)
+            const tAmt = t.amount;
+            const [tMM, tDD] = (t.date||'01/01').split('/').map(Number);
+            const tDayOfYear = tMM * 31 + tDD;
+            const receiptMatch = receiptTxs.find(r => {
+              const [rMM, rDD] = (r.date||'01/01').split('/').map(Number);
+              const rDayOfYear = rMM * 31 + rDD;
+              const amtDiff = Math.abs(r.amount - tAmt) / (tAmt || 1);
+              const dayDiff = Math.abs(rDayOfYear - tDayOfYear);
+              return amtDiff < 0.03 && dayDiff <= 4;
+            });
+            if (receiptMatch) {
+              // Merge: update receipt tx to have CSV merchant name + mark as matched
+              await apiFetch(`/api/transactions/${receiptMatch.id}`, {method:'PUT', body:JSON.stringify({category: t.category})});
+              l.push(`🔗 Matched receipt "${receiptMatch.merchant}" → CSV "${t.merchant}" (${fmt(t.amount)})`); setLog([...l]);
+              mergedCount++;
+            } else {
+              newOnly.push(t);
+            }
+          }
+          const skipped = byMonth[key].length - newOnly.length - mergedCount;
+          if (skipped > 0) l.push(`⊘ Skipped ${skipped} exact duplicate(s) for ${key}`);
+          if (mergedCount > 0) l.push(`✓ Linked ${mergedCount} CSV transaction(s) to existing receipts`);
+          setLog([...l]);
           if (newOnly.length === 0) continue;
           const BATCH_SIZE = 10;
           let allOk = true;
@@ -1007,8 +1082,7 @@ export default function Finance({onBack}) {
     setDebtPaymentMatches(null);
   };
 
-  const uploadReceipt = async (txId, file) => {
-    setUploadingReceipt(txId);
+  const uploadReceipt = async (txId, file) => {    setUploadingReceipt(txId);
     try {
       const base64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result.split(',')[1]);r.readAsDataURL(file);});
       // Normalize media type — Claude only supports jpeg/png/gif/webp/pdf
@@ -1220,7 +1294,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.38</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.39</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1909,9 +1983,58 @@ Rules:
             </button>
           </div>
 
+          {/* ── STEP 1: Upload Receipts First ─────────────────────────── */}
+          <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`2px solid ${C.green}`,marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <div style={{width:24,height:24,borderRadius:"50%",background:C.green,color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>1</div>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Upload Receipts (Optional — do this first)</div>
+            </div>
+            <div style={{fontSize:12,color:C.text3,marginBottom:14,marginLeft:34,lineHeight:1.6}}>
+              Take a photo of a receipt. AI will create a transaction with all line items. Later when you import your bank CSV, it will automatically recognize the match and link it — no duplicate.
+            </div>
+            <input ref={receiptFirstRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadReceiptFirst(e.target.files[0]);e.target.value='';}}/>
+            <input ref={receiptFirstCamRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>{if(e.target.files[0])uploadReceiptFirst(e.target.files[0]);e.target.value='';}}/>
+            {receiptFirstLoading
+              ? <div style={{textAlign:"center",padding:16,color:C.green,fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>🧾 Reading receipt with AI...</div>
+              : receiptFirstResult
+                ? <div style={{background:C.green2,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.green}33`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:700,color:C.text}}>{receiptFirstResult.merchant}</div>
+                        <div style={{fontSize:11,color:C.text3}}>{receiptFirstResult.date} · {receiptFirstResult.items?.length||0} items · Transaction saved ✓</div>
+                      </div>
+                      <div style={{fontSize:16,fontWeight:700,color:C.green}}>{fmt(receiptFirstResult.total||0)}</div>
+                    </div>
+                    {receiptFirstResult.items?.map((item,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0",borderTop:i===0?`1px solid ${C.green}33`:"none"}}>
+                        <span style={{color:C.text2}}>{item.name}</span>
+                        <span style={{color:C.text,fontWeight:600}}>{fmt(item.amount)}</span>
+                      </div>
+                    ))}
+                    <button onClick={()=>setReceiptFirstResult(null)} style={{marginTop:10,background:"none",border:`1px solid ${C.green}`,borderRadius:8,color:C.green,fontSize:12,cursor:"pointer",padding:"4px 12px",fontFamily:"'DM Sans',sans-serif"}}>
+                      + Add another receipt
+                    </button>
+                  </div>
+                : <div style={{display:"flex",gap:10}}>
+                    <button onClick={()=>receiptFirstCamRef.current.click()}
+                      style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:12,padding:"12px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                      📷 Take Receipt Photo
+                    </button>
+                    <button onClick={()=>receiptFirstRef.current.click()}
+                      style={{flex:1,background:C.surface2,color:C.text,border:`1px solid ${C.border2}`,borderRadius:12,padding:"12px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                      🖼 Choose from Gallery
+                    </button>
+                  </div>
+            }
+          </div>
+
+          {/* ── STEP 2: Upload Bank Statement ─────────────────────────── */}
           <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"24px",boxShadow:C.shadow,border:`2px solid ${C.terra}`,marginBottom:16}}>
-            <div style={{fontSize:14,fontWeight:600,color:C.text,marginBottom:4}}>Upload Files</div>
-            <div style={{fontSize:12,color:C.text3,marginBottom:16,lineHeight:1.6}}>Supports CSV, PDF, PNG, JPG, HEIC — any bank statement or receipt photo.</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <div style={{width:24,height:24,borderRadius:"50%",background:C.terra,color:"#fff",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>2</div>
+              <div style={{fontSize:14,fontWeight:600,color:C.text}}>Upload Bank Statement</div>
+            </div>
+            <div style={{fontSize:12,color:C.text3,marginBottom:16,marginLeft:34,lineHeight:1.6}}>CSV, PDF, PNG, JPG, HEIC. Any Chase or PNC statement. Receipts uploaded above will be matched automatically.</div>
             <input ref={inputRef} type="file" multiple accept=".csv,.pdf,.png,.jpg,.jpeg,.heic,image/*" style={{display:"none"}} onChange={e=>processFiles(Array.from(e.target.files))}/>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>processFiles(Array.from(e.target.files))}/>
             {loading
