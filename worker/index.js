@@ -37,14 +37,19 @@ async function initDB(db) {
     CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS receipt_items (id TEXT PRIMARY KEY, tx_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, amount REAL, category TEXT, sort_order INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS income_sources (id TEXT PRIMARY KEY, email TEXT NOT NULL, description TEXT, amount REAL DEFAULT 0, frequency TEXT DEFAULT 'monthly', created_at TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS households (id TEXT PRIMARY KEY, name TEXT, owner_email TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')));
+    CREATE TABLE IF NOT EXISTS household_members (household_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT DEFAULT 'member', joined_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (household_id, email));
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
     CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
+    CREATE INDEX IF NOT EXISTS idx_hm_email ON household_members(email);
   `);
   // Migrate existing tables — ignore errors if column already exists
   try { await db.exec(`ALTER TABLE debts ADD COLUMN account_pattern TEXT DEFAULT ''`); } catch(_){}
   try { await db.exec(`ALTER TABLE transactions ADD COLUMN has_receipt INTEGER DEFAULT 0`); } catch(_){}
   try { await db.exec(`ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`); } catch(_){}
+  try { await db.exec(`ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''`); } catch(_){}
+  try { await db.exec(`ALTER TABLE users ADD COLUMN household_id TEXT DEFAULT NULL`); } catch(_){}
 }
 
 async function ensureUser(db, email) {
@@ -120,9 +125,56 @@ async function handleRequest(request, env) {
     // ── All other routes require auth ─────────────────────────────────────────
     try { await initDB(env.DB); } catch(e) {}
 
-    // Temporarily use a default user while auth is being debugged
-    const user = getUser(request) || 'werlich@outlook.com';
+    const user = getUser(request);
+    if (!user) return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:CORS});
     await ensureUser(env.DB, user);
+
+    // ── /api/me ───────────────────────────────────────────────────────────────
+    if (path === '/api/me' && method === 'GET') {
+      const userData = await env.DB.prepare('SELECT email, display_name, household_id FROM users WHERE email=?').bind(user).first();
+      return json(userData || {email: user, display_name: '', household_id: null});
+    }
+    if (path === '/api/me' && method === 'PUT') {
+      const body = await request.json();
+      if (body.display_name !== undefined) {
+        await env.DB.prepare('UPDATE users SET display_name=? WHERE email=?').bind(body.display_name, user).run();
+      }
+      return json({ok:true});
+    }
+
+    // ── HOUSEHOLDS ────────────────────────────────────────────────────────────
+    if (path === '/api/households' && method === 'POST') {
+      const body = await request.json();
+      const hid = crypto.randomUUID();
+      await env.DB.prepare('INSERT INTO households (id,name,owner_email) VALUES (?,?,?)').bind(hid, body.name||'My Household', user).run();
+      await env.DB.prepare('INSERT OR IGNORE INTO household_members (household_id,email,role) VALUES (?,?,?)').bind(hid, user, 'owner').run();
+      await env.DB.prepare('UPDATE users SET household_id=? WHERE email=?').bind(hid, user).run();
+      return json({ok:true, id:hid});
+    }
+    if (path === '/api/households/invite' && method === 'POST') {
+      const body = await request.json();
+      const me = await env.DB.prepare('SELECT household_id FROM users WHERE email=?').bind(user).first();
+      if (!me?.household_id) return err('You are not in a household');
+      const hh = await env.DB.prepare('SELECT * FROM households WHERE id=? AND owner_email=?').bind(me.household_id, user).first();
+      if (!hh) return err('Only the owner can invite members');
+      await ensureUser(env.DB, body.email);
+      await env.DB.prepare('INSERT OR IGNORE INTO household_members (household_id,email,role) VALUES (?,?,?)').bind(me.household_id, body.email, 'member').run();
+      await env.DB.prepare('UPDATE users SET household_id=? WHERE email=?').bind(me.household_id, body.email).run();
+      return json({ok:true});
+    }
+    if (path === '/api/households/members' && method === 'GET') {
+      const me = await env.DB.prepare('SELECT household_id FROM users WHERE email=?').bind(user).first();
+      if (!me?.household_id) return json([]);
+      const members = await env.DB.prepare('SELECT hm.email, hm.role, u.display_name FROM household_members hm LEFT JOIN users u ON u.email=hm.email WHERE hm.household_id=?').bind(me.household_id).all();
+      return json(members.results||[]);
+    }
+    if (path === '/api/households/leave' && method === 'POST') {
+      const me = await env.DB.prepare('SELECT household_id FROM users WHERE email=?').bind(user).first();
+      if (!me?.household_id) return err('Not in a household');
+      await env.DB.prepare('DELETE FROM household_members WHERE household_id=? AND email=?').bind(me.household_id, user).run();
+      await env.DB.prepare('UPDATE users SET household_id=NULL WHERE email=?').bind(user).run();
+      return json({ok:true});
+    }
 
     if (path === '/api/user' && method === 'GET') {
       const userData = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(user).first();
@@ -320,5 +372,5 @@ async function handleRequest(request, env) {
 
     return err('Not found', 404);
 }
-// deployed Tue May  5 21:42:20 UTC 2026
-// v1778024956
+// deployed Mon Jun 16 2026
+// v1.0.37 - Cloudflare Access auth + household model

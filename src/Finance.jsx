@@ -58,6 +58,7 @@ async function apiFetch(path, opts={}) {
     const data = await res.json();
     if (!res.ok) {
       console.error('API error', res.status, data);
+      if (res.status === 401) return {error: 'Unauthorized', status: 401};
       return {ok: false, error: data?.error || res.status};
     }
     return data;
@@ -619,10 +620,13 @@ export default function Finance({onBack}) {
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [apiReady, setApiReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authError, setAuthError] = useState(false);
   const [incomeSources, setIncomeSources] = useState([]);
   const [monthlyData, setMonthlyData] = useState({});
   const [monthBudgets, setMonthBudgets] = useState({});
   const [customCategories, setCustomCategories] = useState([]);
+  const [showHouseholdPanel, setShowHouseholdPanel] = useState(false);
   const inputRef = useRef();
 
   // Compute total monthly income from sources
@@ -693,6 +697,13 @@ export default function Finance({onBack}) {
   };
 
   const loadAll = async () => {
+    const meData = await apiFetch('/api/me');
+    if (meData?.error === 'Unauthorized' || meData?.status === 401) {
+      setAuthError(true);
+      return;
+    }
+    if (meData?.email) setCurrentUser(meData);
+
     const [userData, debtData, savingsData, catData, srcData] = await Promise.all([
       apiFetch('/api/user'),
       apiFetch('/api/debts'),
@@ -1037,6 +1048,19 @@ Rules:
     boxShadow:tab===t?`0 2px 8px ${C.terra}44`:C.shadow,transition:"all .2s",whiteSpace:"nowrap",
   });
 
+  if (authError) {
+    return (
+      <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:32,fontFamily:"'DM Sans',sans-serif"}}>
+        <div style={{fontSize:48}}>🔒</div>
+        <h2 style={{margin:0,color:C.text,fontFamily:"'Sora',sans-serif",fontSize:22}}>Access Required</h2>
+        <p style={{margin:0,color:C.text2,textAlign:"center",maxWidth:380,fontSize:14,lineHeight:1.6}}>
+          This portal is protected by Cloudflare Access. Please authenticate via the email link sent to your address, then refresh this page.
+        </p>
+        <button onClick={()=>window.location.reload()} style={{background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"10px 28px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Refresh Page</button>
+      </div>
+    );
+  }
+
   return (
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap');`}</style>
@@ -1076,7 +1100,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.36</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.37</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1087,9 +1111,16 @@ Rules:
               </div>
               <button onClick={()=>{if(selectedMonth===11){setSelectedMonth(0);setSelectedYear(y=>y+1);}else setSelectedMonth(m=>m+1);}} style={{background:"none",border:"none",color:C.text2,cursor:"pointer",fontSize:18,padding:"0 4px"}}>›</button>
             </div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:11,color:C.text3,textTransform:"uppercase",letterSpacing:.8}}>Monthly Income</div>
-              <div style={{fontSize:24,fontWeight:700,color:C.green}}>{fmt(income)}</div>
+            <div style={{display:"flex",alignItems:"center",gap:20}}>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,color:C.text3,textTransform:"uppercase",letterSpacing:.8}}>Monthly Income</div>
+                <div style={{fontSize:24,fontWeight:700,color:C.green}}>{fmt(income)}</div>
+              </div>
+              {currentUser && (
+                <div title={currentUser.email} style={{width:38,height:38,borderRadius:"50%",background:C.terra3,border:`2px solid ${C.terra}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:C.terra,cursor:"default",flexShrink:0}}>
+                  {(currentUser.display_name||currentUser.email||'?')[0].toUpperCase()}
+                </div>
+              )}
             </div>
           </div>
         )}
