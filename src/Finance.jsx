@@ -627,6 +627,12 @@ export default function Finance({onBack}) {
   const [monthBudgets, setMonthBudgets] = useState({});
   const [customCategories, setCustomCategories] = useState([]);
   const [showHouseholdPanel, setShowHouseholdPanel] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [darkMode, setDarkMode] = useState(()=>localStorage.getItem('darkMode')==='1');
+  const [sortTx, setSortTx] = useState('amount');
+  const [householdMembers, setHouseholdMembers] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [displayNameEdit, setDisplayNameEdit] = useState('');
   const inputRef = useRef();
 
   // Compute total monthly income from sources
@@ -1061,12 +1067,126 @@ Rules:
     );
   }
 
+  // Export transactions as CSV
+  const exportCSV = () => {
+    const rows = [['Date','Merchant','Amount','Category','Source']];
+    expenses.forEach(t => rows.push([t.date, `"${t.merchant.replace(/"/g,'""')}"`, t.amount, t.category, t.source||'']));
+    const csv = rows.map(r=>r.join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+    a.download = `transactions-${monthKey}.csv`;
+    a.click();
+  };
+
+  // Settings / household helpers
+  const loadHouseholdMembers = async () => {
+    const data = await apiFetch('/api/households/members');
+    if (Array.isArray(data)) setHouseholdMembers(data);
+  };
+  const createHousehold = async () => {
+    const name = prompt('Household name (e.g. "Werlich Family"):');
+    if (!name) return;
+    await apiFetch('/api/households', {method:'POST', body:JSON.stringify({name})});
+    const me = await apiFetch('/api/me');
+    if (me?.email) setCurrentUser(me);
+    await loadHouseholdMembers();
+  };
+  const inviteMember = async () => {
+    if (!inviteEmail.trim()) return;
+    const res = await apiFetch('/api/households/invite', {method:'POST', body:JSON.stringify({email:inviteEmail.trim()})});
+    if (res?.ok) { setInviteEmail(''); await loadHouseholdMembers(); }
+    else alert(res?.error || 'Invite failed');
+  };
+  const saveDisplayName = async () => {
+    await apiFetch('/api/me', {method:'PUT', body:JSON.stringify({display_name:displayNameEdit})});
+    setCurrentUser(p=>({...p, display_name:displayNameEdit}));
+  };
+
+  // Bill reminders: debts with deadline within 60 days
+  const today = new Date();
+  const upcomingBills = debts.filter(d => {
+    if (!d.deadline_date) return false;
+    const days = Math.round((new Date(d.deadline_date) - today) / 86400000);
+    return days >= 0 && days <= 60;
+  }).sort((a,b)=>new Date(a.deadline_date)-new Date(b.deadline_date));
+
   return (
-    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap');`}</style>
+    <div data-dark={darkMode?'true':'false'} style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Sans','Segoe UI',sans-serif",colorScheme:darkMode?'dark':'light'}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap');
+        [data-dark="true"] { filter: invert(0.88) hue-rotate(180deg); }
+        [data-dark="true"] img, [data-dark="true"] video, [data-dark="true"] canvas { filter: invert(1) hue-rotate(180deg); }
+        [data-dark="true"] .emoji-no-invert { filter: invert(1) hue-rotate(180deg); }
+      `}</style>
 
       {showAddDebt && <AddDebtModal onAdd={addDebt} onClose={()=>setShowAddDebt(false)}/>}
       {debtPaymentMatches && <DebtPaymentModal matches={debtPaymentMatches} onConfirm={confirmDebtPayments} onClose={()=>setDebtPaymentMatches(null)}/>}
+
+      {/* SETTINGS PANEL */}
+      {showSettings && (
+        <div style={{position:"fixed",inset:0,background:"rgba(26,23,20,0.5)",zIndex:2000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSettings(false)}>
+          <div style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:560,maxHeight:"85vh",overflowY:"auto",padding:24}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h2 style={{margin:0,fontSize:18,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>⚙️ Settings</h2>
+              <button onClick={()=>setShowSettings(false)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:16,color:C.text2}}>✕</button>
+            </div>
+
+            {/* Profile */}
+            <div style={{marginBottom:20,padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:10}}>Profile</div>
+              <div style={{fontSize:12,color:C.text3,marginBottom:6}}>Email: <strong style={{color:C.text}}>{currentUser?.email}</strong></div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input value={displayNameEdit} onChange={e=>setDisplayNameEdit(e.target.value)} placeholder="Display name (e.g. Jose)"
+                  style={{flex:1,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:13,color:C.text,fontFamily:"'DM Sans',sans-serif"}}/>
+                <button onClick={saveDisplayName} style={{background:C.terra,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Save</button>
+              </div>
+            </div>
+
+            {/* Dark Mode */}
+            <div style={{marginBottom:20,padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:C.text}}>🌙 Dark Mode</div>
+                <div style={{fontSize:11,color:C.text3,marginTop:2}}>Easier on the eyes at night</div>
+              </div>
+              <button onClick={()=>{const n=!darkMode;setDarkMode(n);localStorage.setItem('darkMode',n?'1':'0');}}
+                style={{width:48,height:26,borderRadius:99,border:"none",cursor:"pointer",background:darkMode?C.terra:C.border2,position:"relative",transition:"background .2s",padding:0}}>
+                <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:darkMode?25:3,transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
+              </button>
+            </div>
+
+            {/* Household */}
+            <div style={{padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6,marginBottom:10}}>Household</div>
+              {currentUser?.household_id ? (
+                <>
+                  <div style={{fontSize:12,color:C.text3,marginBottom:12}}>Household ID: <strong style={{color:C.text,fontSize:11}}>{currentUser.household_id}</strong></div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>Members</div>
+                  {householdMembers.length === 0
+                    ? <div style={{fontSize:12,color:C.text3,marginBottom:12}}>Loading members... <button onClick={loadHouseholdMembers} style={{background:"none",border:"none",color:C.terra,cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>Refresh</button></div>
+                    : householdMembers.map(m=>(
+                      <div key={m.email} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+                        <span style={{color:C.text}}>{m.display_name||m.email}</span>
+                        <span style={{color:C.text3,textTransform:"capitalize"}}>{m.role}</span>
+                      </div>
+                    ))}
+                  <div style={{display:"flex",gap:8,marginTop:12}}>
+                    <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@example.com"
+                      style={{flex:1,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:8,padding:"7px 10px",fontSize:12,color:C.text,fontFamily:"'DM Sans',sans-serif"}}/>
+                    <button onClick={inviteMember} style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Invite</button>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div style={{fontSize:13,color:C.text2,marginBottom:12}}>You're not part of a household yet. Create one to share access with family or coworkers.</div>
+                  <button onClick={createHousehold} style={{background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
+                    🏠 Create Household
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* HEADER */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:mobile?"14px 16px":"20px 40px",boxShadow:C.shadow}}>
@@ -1100,7 +1220,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.37</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.38</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1117,7 +1237,8 @@ Rules:
                 <div style={{fontSize:24,fontWeight:700,color:C.green}}>{fmt(income)}</div>
               </div>
               {currentUser && (
-                <div title={currentUser.email} style={{width:38,height:38,borderRadius:"50%",background:C.terra3,border:`2px solid ${C.terra}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:C.terra,cursor:"default",flexShrink:0}}>
+                <div onClick={()=>{setShowSettings(true);setDisplayNameEdit(currentUser.display_name||'');loadHouseholdMembers();}}
+                  title={currentUser.email} style={{width:38,height:38,borderRadius:"50%",background:C.terra3,border:`2px solid ${C.terra}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,color:C.terra,cursor:"pointer",flexShrink:0}}>
                   {(currentUser.display_name||currentUser.email||'?')[0].toUpperCase()}
                 </div>
               )}
@@ -1136,6 +1257,19 @@ Rules:
 
         {/* DASHBOARD */}
         {tab==="dashboard"&&<div>
+          {/* Bill reminders */}
+          {upcomingBills.length > 0 && (
+            <div style={{marginBottom:mobile?14:20,background:"#FBF4E0",border:"1px solid #E8D87A",borderRadius:14,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:.6}}>⏰ Upcoming Deadlines</div>
+              {upcomingBills.map(d=>{
+                const days = Math.round((new Date(d.deadline_date) - today) / 86400000);
+                return <div key={d.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13}}>
+                  <span style={{fontWeight:600,color:C.text}}>{d.name}</span>
+                  <span style={{color:days<=14?C.red:C.gold,fontWeight:700}}>{days===0?"Today!":days===1?"Tomorrow":`${days} days`} · {fmt(d.balance)}</span>
+                </div>;
+              })}
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:mobile?"1fr 1fr":"repeat(4,1fr)",gap:mobile?10:16,marginBottom:mobile?16:28}}>
             <StatCard mobile={mobile} label="Total Spent" value={fmt(totalSpend)} sub={`${pct(totalSpend,income)}% of income`} color={totalSpend>income?C.red:C.text}/>
             <StatCard mobile={mobile} label="Remaining" value={fmt(net)} sub={net>=0?"On track":"Over budget"} color={net>=0?C.green:C.red} bg={net>=0?C.green2:C.red2}/>
@@ -1584,13 +1718,23 @@ Rules:
 
         {/* TRANSACTIONS */}
         {tab==="transactions"&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
             <div>
               <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{MONTHS[selectedMonth]} Transactions</div>
               <div style={{fontSize:12,color:C.text3,marginTop:2}}>{expenses.length} expenses · {fmt(totalSpend)}</div>
             </div>
-            <button onClick={async()=>{await apiFetch(`/api/transactions?month=${monthKey}`,{method:'DELETE'});setTxs([]);}}
-              style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:99,color:C.red,fontSize:12,padding:"7px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Clear</button>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setSortTx(s=>s==='amount'?'date':'amount')}
+                style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,fontSize:12,padding:"7px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                Sort: {sortTx==='amount'?'💰 Amount':'📅 Date'}
+              </button>
+              <button onClick={exportCSV}
+                style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,fontSize:12,padding:"7px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                ⬇ Export CSV
+              </button>
+              <button onClick={async()=>{if(!window.confirm(`Clear all ${expenses.length} transactions for ${MONTHS[selectedMonth]}? This cannot be undone.`))return;await apiFetch(`/api/transactions?month=${monthKey}`,{method:'DELETE'});setTxs([]);}}
+                style={{background:"none",border:`1px solid ${C.border2}`,borderRadius:99,color:C.red,fontSize:12,padding:"7px 14px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Clear All</button>
+            </div>
           </div>
           <input ref={receiptRef} type="file" accept="image/*,.pdf" style={{display:"none"}}
             onChange={async e=>{
@@ -1602,7 +1746,7 @@ Rules:
           {expenses.length===0
             ?<div style={{background:C.surface,borderRadius:16,padding:40,textAlign:"center",color:C.text3,fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>No transactions for this month.</div>
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
-              {expenses.sort((a,b)=>b.amount-a.amount).map((tx,i)=>{
+              {[...expenses].sort(sortTx==='amount'?(a,b)=>b.amount-a.amount:(a,b)=>b.date.localeCompare(a.date)).map((tx,i)=>{
                 const cat=allCats.find(c=>c.id===tx.category)||allCats[allCats.length-1];
                 return <div key={tx.id}><div style={{display:"flex",alignItems:"center",gap:mobile?10:16,padding:mobile?"12px 14px":"14px 20px",borderBottom:(i<expenses.length-1&&expandedTx!==tx.id)?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDFAF7"}}>
                   <div style={{width:mobile?32:38,height:mobile?32:38,borderRadius:10,background:cat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:mobile?15:18,flexShrink:0}}>{cat.icon}</div>
