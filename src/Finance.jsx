@@ -1301,9 +1301,15 @@ Rules:
                   <div style={{fontSize:11,color:C.text3}}>{MONTHS[selectedMonth]} {selectedYear}</div>
                 </div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:10,color:C.text3}}>Income</div>
-                <div style={{fontSize:16,fontWeight:700,color:C.green}}>{fmt(income)}</div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:C.text3}}>Income</div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.green}}>{fmt(income)}</div>
+                </div>
+                <div onClick={()=>{setShowSettings(true);setDisplayNameEdit(currentUser?.display_name||'');loadHouseholdMembers();}}
+                  style={{width:34,height:34,borderRadius:"50%",background:C.terra3,border:`2px solid ${C.terra}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.terra,cursor:"pointer",flexShrink:0}}>
+                  {currentUser ? (currentUser.display_name||currentUser.email||'?')[0].toUpperCase() : '⚙'}
+                </div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1321,7 +1327,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.40</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.41</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
