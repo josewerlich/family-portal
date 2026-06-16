@@ -748,7 +748,18 @@ export default function Finance({onBack}) {
     // Load month-specific income and budgets if available
     if (monthData?.income && monthData.income > 0) setIncome(monthData.income);
     if (monthData?.budgets) setMonthBudgets(typeof monthData.budgets==='string' ? JSON.parse(monthData.budgets) : monthData.budgets);
-    // Receipt items are loaded lazily on click — no preload needed
+    // Eagerly load receipt items for transactions that have them (needed for byCat budget split)
+    const txsWithReceipts = txArr.filter(t => t.has_receipt);
+    if (txsWithReceipts.length > 0) {
+      const allItems = {};
+      await Promise.all(txsWithReceipts.map(async t => {
+        const items = await apiFetch(`/api/receipt-items?tx_id=${t.id}`);
+        if (Array.isArray(items) && items.length > 0) allItems[t.id] = items;
+      }));
+      setReceiptItems(allItems);
+    } else {
+      setReceiptItems({});
+    }
     // Auto-apply detected payments for this month
     if (debts.length > 0 && txArr.length > 0) {
       const matches = detectDebtPayments(txArr, debts);
@@ -774,7 +785,21 @@ export default function Finance({onBack}) {
   const net = income - totalSpend;
   const byCat = {};
   allCats.forEach(c=>{byCat[c.id]=0;});
-  expenses.forEach(t=>{byCat[t.category]=(byCat[t.category]||0)+t.amount;});
+  expenses.forEach(t=>{
+    const items = receiptItems[t.id];
+    if (items?.length > 0) {
+      // Distribute by receipt line item categories
+      items.forEach(item=>{
+        byCat[item.category] = (byCat[item.category]||0) + item.amount;
+      });
+      // Any difference between receipt total and tx amount goes to tx category
+      const receiptTotal = items.reduce((s,i)=>s+i.amount, 0);
+      const remainder = t.amount - receiptTotal;
+      if (Math.abs(remainder) > 0.01) byCat[t.category] = (byCat[t.category]||0) + remainder;
+    } else {
+      byCat[t.category] = (byCat[t.category]||0) + t.amount;
+    }
+  });
   const totalDebt = debts.reduce((s,d)=>s+d.balance,0);
   const totalPaid = debts.reduce((s,d)=>s+((d.original_balance||d.balance)-d.balance),0);
   const totalOrig = debts.reduce((s,d)=>s+(d.original_balance||d.balance),0);
@@ -1049,7 +1074,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.34</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.35</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
