@@ -693,16 +693,18 @@ export default function Finance({onBack}) {
   };
 
   const loadAll = async () => {
-    const [userData, debtData, savingsData, catData] = await Promise.all([
+    const [userData, debtData, savingsData, catData, srcData] = await Promise.all([
       apiFetch('/api/user'),
       apiFetch('/api/debts'),
       apiFetch('/api/savings'),
       apiFetch('/api/categories'),
+      apiFetch('/api/income-sources'),
     ]);
     if (userData) setIncome(userData.income || 0);
     if (Array.isArray(debtData)) setDebts(debtData);
     if (Array.isArray(savingsData)) setSavings(savingsData);
     if (Array.isArray(catData)) setCustomCategories(catData);
+    if (Array.isArray(srcData)) setIncomeSources(srcData);
     setApiReady(true);
   };
 
@@ -1074,7 +1076,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.35</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>Werlich Household · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.36</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1658,7 +1660,11 @@ Rules:
                 <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Income for {MONTHS[selectedMonth]} {selectedYear}</div>
                 <div style={{fontSize:11,color:C.text3,marginTop:2}}>Total: <strong style={{color:C.green}}>{fmt(income)}</strong></div>
               </div>
-              <button onClick={()=>setIncomeSources(p=>[...p,{id:Date.now().toString(),description:"",amount:0,frequency:"monthly"}])}
+              <button onClick={async()=>{
+                const newSrc={description:"",amount:0,frequency:"monthly"};
+                const res=await apiFetch('/api/income-sources',{method:'POST',body:JSON.stringify(newSrc)});
+                if(res?.ok) setIncomeSources(p=>[...p,{...newSrc,id:res.id}]);
+              }}
                 style={{background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
                 + Add Manual
               </button>
@@ -1682,19 +1688,41 @@ Rules:
                 </div>
               );
             })()}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 120px 28px",gap:8,marginBottom:6}}>
-              {["Description","Monthly Amount",""].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 28px",gap:8,marginBottom:6}}>
+              {["Description","Amount","Frequency",""].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
             </div>
             {incomeSources.map((src,i)=>(
-              <div key={src.id} style={{display:"grid",gridTemplateColumns:"1fr 120px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-                <input value={src.description} onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,description:e.target.value}:s))}
+              <div key={src.id} style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
+                <input value={src.description}
+                  onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,description:e.target.value}:s))}
+                  onBlur={e=>apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({description:e.target.value})})}
                   placeholder="e.g. Ed - RenaissanceTech"
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
-                <input type="number" value={src.amount} onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,amount:parseFloat(e.target.value)||0}:s))}
-                  placeholder="Monthly total"
+                <input type="number" value={src.amount}
+                  onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,amount:parseFloat(e.target.value)||0}:s))}
+                  onBlur={e=>apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({amount:parseFloat(e.target.value)||0})})}
+                  placeholder="Amount"
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
-                <button onClick={()=>setIncomeSources(p=>p.filter((_,j)=>j!==i))}
-                  style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:0}}>✕</button>
+                <select value={src.frequency}
+                  onChange={async e=>{
+                    const freq=e.target.value;
+                    setIncomeSources(p=>p.map((s,j)=>j===i?{...s,frequency:freq}:s));
+                    await apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({frequency:freq})});
+                  }}
+                  style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 6px",fontSize:11,width:"100%",boxSizing:"border-box"}}>
+                  <option value="monthly">Monthly</option>
+                  <option value="biweekly">Biweekly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+                <button onClick={async()=>{
+                  await apiFetch(`/api/income-sources/${src.id}`,{method:'DELETE'});
+                  setIncomeSources(p=>p.filter((_,j)=>j!==i));
+                  updateIncome(incomeSources.filter((_,j)=>j!==i).reduce((s,x)=>{
+                    if(x.frequency==='biweekly') return s+(x.amount*26/12);
+                    if(x.frequency==='weekly') return s+(x.amount*52/12);
+                    return s+x.amount;
+                  },0));
+                }} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:0}}>✕</button>
               </div>
             ))}
             <div style={{fontSize:11,color:C.text3,marginBottom:8,fontStyle:"italic"}}>

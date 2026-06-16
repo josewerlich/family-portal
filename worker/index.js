@@ -36,6 +36,7 @@ async function initDB(db) {
     CREATE TABLE IF NOT EXISTS savings_goals (id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, target_amount REAL, current_amount REAL DEFAULT 0, target_date TEXT, priority INTEGER DEFAULT 99, icon TEXT, color TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS custom_categories (id TEXT PRIMARY KEY, email TEXT NOT NULL, label TEXT, icon TEXT, color TEXT, bg TEXT, created_at TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS receipt_items (id TEXT PRIMARY KEY, tx_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, amount REAL, category TEXT, sort_order INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS income_sources (id TEXT PRIMARY KEY, email TEXT NOT NULL, description TEXT, amount REAL DEFAULT 0, frequency TEXT DEFAULT 'monthly', created_at TEXT DEFAULT (datetime('now')));
     CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key);
     CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id);
     CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email);
@@ -255,6 +256,34 @@ async function handleRequest(request, env) {
     if (path === '/api/months' && method === 'GET') {
       const months = await env.DB.prepare('SELECT DISTINCT month_key FROM transactions WHERE email=? ORDER BY month_key DESC').bind(user).all();
       return json((months.results||[]).map(m=>m.month_key));
+    }
+    // ── INCOME SOURCES ───────────────────────────────────────────────
+    if (path === '/api/income-sources' && method === 'GET') {
+      const sources = await env.DB.prepare('SELECT * FROM income_sources WHERE email=? ORDER BY created_at ASC').bind(user).all();
+      return json(sources.results||[]);
+    }
+    if (path === '/api/income-sources' && method === 'POST') {
+      const body = await request.json();
+      const id = body.id || crypto.randomUUID();
+      await env.DB.prepare('INSERT OR REPLACE INTO income_sources (id,email,description,amount,frequency) VALUES (?,?,?,?,?)').bind(id,user,body.description||'',body.amount||0,body.frequency||'monthly').run();
+      return json({ok:true,id});
+    }
+    if (path.startsWith('/api/income-sources/') && method === 'PUT') {
+      const srcId = path.split('/').pop();
+      const body = await request.json();
+      const fields=[],values=[];
+      if(body.description!==undefined){fields.push('description=?');values.push(body.description);}
+      if(body.amount!==undefined){fields.push('amount=?');values.push(body.amount);}
+      if(body.frequency!==undefined){fields.push('frequency=?');values.push(body.frequency);}
+      if(!fields.length) return json({ok:true});
+      values.push(srcId,user);
+      await env.DB.prepare(`UPDATE income_sources SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();
+      return json({ok:true});
+    }
+    if (path.startsWith('/api/income-sources/') && method === 'DELETE') {
+      const srcId = path.split('/').pop();
+      await env.DB.prepare('DELETE FROM income_sources WHERE id=? AND email=?').bind(srcId,user).run();
+      return json({ok:true});
     }
     // ── SAVINGS ─────────────────────────────────────────────────────
     if (path === '/api/savings' && method === 'GET') {
