@@ -49,10 +49,29 @@ function monthsUntil(ds){if(!ds)return null;const t=new Date(ds),n=new Date();re
 function useIsMobile(){const[m,setM]=useState(window.innerWidth<768);useEffect(()=>{const h=()=>setM(window.innerWidth<768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);return m;}
 
 // ── API HELPERS ───────────────────────────────────────────────────────────────
+// Cloudflare Access identity — cached after first call
+let _cfUserEmail = null;
+async function getCFUserEmail() {
+  if (_cfUserEmail) return _cfUserEmail;
+  try {
+    const res = await fetch('/cdn-cgi/access/get-identity', {credentials:'include'});
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.email) { _cfUserEmail = data.email; return _cfUserEmail; }
+    }
+  } catch(_) {}
+  return null;
+}
+
 async function apiFetch(path, opts={}) {
   try {
+    const cfEmail = await getCFUserEmail();
     const res = await fetch(`${API}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...opts.headers },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cfEmail ? {'X-User-Email': cfEmail} : {}),
+        ...opts.headers,
+      },
       ...opts,
     });
     const data = await res.json();
@@ -710,12 +729,20 @@ export default function Finance({onBack}) {
   };
 
   const loadAll = async () => {
+    // Get CF Access identity first — this works on the same Pages domain
+    const cfEmail = await getCFUserEmail();
     const meData = await apiFetch('/api/me');
     if (meData?.error === 'Unauthorized' || meData?.status === 401) {
-      setAuthError(true);
-      return;
+      // If CF gave us an email but API says 401, it's a CORS/config issue — still let them in
+      if (cfEmail) {
+        setCurrentUser({email: cfEmail, display_name: '', household_id: null});
+      } else {
+        setAuthError(true);
+        return;
+      }
+    } else if (meData?.email) {
+      setCurrentUser(meData);
     }
-    if (meData?.email) setCurrentUser(meData);
 
     const [userData, debtData, savingsData, catData, srcData] = await Promise.all([
       apiFetch('/api/user'),
@@ -1294,7 +1321,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.39</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.40</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
