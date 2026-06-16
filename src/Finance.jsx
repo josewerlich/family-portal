@@ -283,7 +283,7 @@ function CatRow({cat,actual,budget}){
 }
 
 // ── DEBT CARD (draggable) ─────────────────────────────────────────────────────
-function DebtCard({debt, onUpdate, onDelete, onDragStart, onDragOver, onDrop, isDragging}) {
+function DebtCard({debt, onUpdate, onDelete, onDragStart, onDragOver, onDrop, isDragging, monthPayments=[]}) {
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({...debt});
   const months = monthsUntil(debt.deadline_date);
@@ -360,9 +360,20 @@ function DebtCard({debt, onUpdate, onDelete, onDragStart, onDragOver, onDrop, is
             </div>
           </div>
           <Bar value={paid} max={original} color={debt.color} h={6}/>
-          <div style={{display:"flex",justifyContent:"space-between",marginTop:6,marginBottom:debt.note?10:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:6,marginBottom:(debt.note||monthPayments.length)?10:0}}>
             <span style={{fontSize:11,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>Deadline: {debt.deadline}{months!==null?` · ${months} months`:""}</span>
           </div>
+          {monthPayments.length>0&&(
+            <div style={{marginBottom:debt.note?10:0,padding:"8px 12px",background:C.green2,borderRadius:10,border:`1px solid ${C.green}33`}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.6,marginBottom:6}}>Payments this month</div>
+              {monthPayments.map((p,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0"}}>
+                  <span style={{color:C.text2,fontFamily:"'DM Sans',sans-serif"}}>{p.date} · {p.merchant}</span>
+                  <span style={{fontWeight:700,color:C.green,fontFamily:"'DM Sans',sans-serif"}}>−{fmt(p.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {debt.note&&<div style={{fontSize:12,color:C.text2,background:debt.bg||C.terra3,borderRadius:10,padding:"8px 12px",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>{debt.note}</div>}
         </>
       )}
@@ -1037,8 +1048,7 @@ export default function Finance({onBack}) {
                     const mKey = `${yr}-${String(m).padStart(2,'0')}`;
                     const txs = await apiFetch(`/api/transactions?month=${mKey}`);
                     if (!Array.isArray(txs) || txs.length === 0) continue;
-                    const ccTxs = txs.filter(t => isCreditCardPayment(t.merchant));
-                    const matches = detectDebtPayments(ccTxs, debts);
+                    const matches = detectDebtPayments(txs, debts);
                     if (matches.length > 0) {
                       for (const m2 of matches) {
                         await updateDebt(m2.debt.id, {balance: m2.suggestedBalance});
@@ -1066,12 +1076,21 @@ export default function Finance({onBack}) {
               <button onClick={()=>setShowAddDebt(true)} style={{background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:"12px 24px",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Add Your First Debt</button>
             </div>
             :<div style={{display:"flex",flexDirection:"column",gap:12}}>
-              {debts.map(d=>(
-                <DebtCard key={d.id} debt={d}
+              {debts.map(d=>{
+                const monthPayments = txs.filter(t => {
+                  if (t.amount <= 0) return false;
+                  const desc = t.merchant.toUpperCase();
+                  if (d.account_pattern && d.account_pattern.trim()) return desc.includes(d.account_pattern.trim().toUpperCase());
+                  for (const [key, pattern] of Object.entries(DEBT_MATCH_PATTERNS)) {
+                    if (d.name.toUpperCase().includes(key) && pattern.test(desc)) return true;
+                  }
+                  return false;
+                });
+                return <DebtCard key={d.id} debt={d}
                   onUpdate={updateDebt} onDelete={deleteDebt}
                   onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
-                  isDragging={dragId===d.id}/>
-              ))}
+                  isDragging={dragId===d.id} monthPayments={monthPayments}/>;
+              })}
               <div style={{background:C.surface2,borderRadius:12,padding:"12px 16px",border:`1px dashed ${C.border2}`,textAlign:"center",fontSize:12,color:C.text3}}>
                 Drag cards above to reorder your debt payoff priority ⠿
               </div>
