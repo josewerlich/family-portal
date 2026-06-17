@@ -655,6 +655,7 @@ export default function Finance({onBack}) {
   const [txSearch, setTxSearch] = useState('');
   const [undoToast, setUndoToast] = useState(null);
   const [yoyData, setYoyData] = useState(null);
+  const [chartView, setChartView] = useState('grid'); // 'grid' | 'list'
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [displayNameEdit, setDisplayNameEdit] = useState('');
@@ -1363,7 +1364,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.42</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.43</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1479,81 +1480,137 @@ Rules:
             const curData = monthlyData[curKey] || {};
             const catData = allCats.filter(c=>(curData.byCat||{})[c.id]>0).sort((a,b)=>(curData.byCat[b.id]||0)-(curData.byCat[a.id]||0)).slice(0,8);
             const maxCat = Math.max(...catData.map(c=>(curData.byCat||{})[c.id]||0),1);
-            // Net savings line chart data
             const nets = months6.map(k=>monthlyData[k].net);
             const maxNet = Math.max(...nets.map(Math.abs),1);
-            const W=300, H=120, PAD=36;
+            const W=300, H=100, PAD=30;
             const pts = nets.map((n,i)=>{
               const x = PAD + (i/(months6.length-1||1))*(W-PAD*2);
-              const y = H/2 - (n/maxNet)*(H/2-12);
+              const y = H/2 - (n/maxNet)*(H/2-10);
               return `${x},${y}`;
             }).join(' ');
-            return (
-              <div style={{marginTop:24,display:"grid",gridTemplateColumns:mobile?"1fr":catData.length?"1fr 1fr":"1fr",gap:mobile?14:20}}>
-                {/* Category bar chart */}
-                {catData.length>0&&<div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
-                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Spending by Category</div>
-                  <div style={{fontSize:11,color:C.text3,marginBottom:14}}>{MONTHS[selectedMonth]} {selectedYear}</div>
+
+            // Shared card styles
+            const card = {background:C.surface,borderRadius:16,padding:mobile?"14px":"18px 20px",boxShadow:C.shadow,border:`1px solid ${C.border}`};
+
+            // Grid view: 2 columns of compact squares
+            const gridCharts = (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:mobile?10:14}}>
+                {/* Category squares */}
+                {catData.slice(0,6).map(c=>{
+                  const val=(curData.byCat||{})[c.id]||0;
+                  const pct2=Math.min(100,Math.round((val/maxCat)*100));
+                  return <div key={c.id} style={{...card,display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:16}}>{c.icon}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:c.color,fontFamily:"'DM Sans',sans-serif"}}>{fmt(val)}</span>
+                    </div>
+                    <div style={{fontSize:11,fontWeight:600,color:C.text2,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</div>
+                    <div style={{background:C.surface2,borderRadius:99,height:5,overflow:"hidden"}}>
+                      <div style={{width:`${pct2}%`,height:"100%",background:c.color,borderRadius:99}}/>
+                    </div>
+                  </div>;
+                })}
+                {/* Inc vs Exp mini */}
+                <div style={{...card,gridColumn:"1/-1"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Income vs Expenses</span>
+                    <div style={{display:"flex",gap:10}}>
+                      <span style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:C.text3}}><span style={{width:8,height:8,background:C.green,borderRadius:2,display:"inline-block"}}/>Inc</span>
+                      <span style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:C.text3}}><span style={{width:8,height:8,background:C.terra,borderRadius:2,display:"inline-block"}}/>Exp</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:mobile?4:8,height:80}}>
+                    {months6.map(k=>{
+                      const d=monthlyData[k];
+                      const incH=Math.round((d.income/maxVal)*68);
+                      const spH=Math.round((d.spent/maxVal)*68);
+                      return <div key={k} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:1,height:68}}>
+                          <div style={{width:mobile?8:12,height:incH,background:C.green,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                          <div style={{width:mobile?8:12,height:spH,background:C.terra,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                        </div>
+                        <div style={{fontSize:8,color:C.text3}}>{d.label}</div>
+                      </div>;
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+
+            // List view: full-width cards stacked
+            const listCharts = (
+              <div style={{display:"flex",flexDirection:"column",gap:mobile?10:14}}>
+                {catData.length>0&&<div style={card}>
+                  <div style={{fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:10}}>Spending by Category</div>
                   {catData.map(c=>{
                     const val=(curData.byCat||{})[c.id]||0;
-                    const barW=Math.round((val/maxCat)*100);
-                    return <div key={c.id} style={{marginBottom:10}}>
+                    return <div key={c.id} style={{marginBottom:8}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:12,color:C.text,fontFamily:"'DM Sans',sans-serif"}}>{c.icon} {c.label}</span>
-                        <span style={{fontSize:12,fontWeight:700,color:c.color,fontFamily:"'DM Sans',sans-serif"}}>{fmt(val)}</span>
+                        <span style={{fontSize:12,color:C.text}}>{c.icon} {c.label}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:c.color}}>{fmt(val)}</span>
                       </div>
-                      <div style={{background:C.surface2,borderRadius:99,height:8,overflow:"hidden"}}>
-                        <div style={{width:`${barW}%`,height:"100%",background:c.color,borderRadius:99,transition:"width .5s"}}/>
+                      <div style={{background:C.surface2,borderRadius:99,height:7,overflow:"hidden"}}>
+                        <div style={{width:`${Math.round((val/maxCat)*100)}%`,height:"100%",background:c.color,borderRadius:99}}/>
                       </div>
                     </div>;
                   })}
                 </div>}
-
-                {/* Income vs Expenses bar chart */}
-                <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`}}>
-                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Income vs Expenses</div>
-                  <div style={{fontSize:11,color:C.text3,marginBottom:14}}>Last 6 months</div>
-                  <div style={{display:"flex",alignItems:"flex-end",gap:mobile?6:10,height:130}}>
+                <div style={card}>
+                  <div style={{fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:10}}>Income vs Expenses — Last 6 months</div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:mobile?6:12,height:110}}>
                     {months6.map(k=>{
                       const d=monthlyData[k];
-                      const incH=Math.round((d.income/maxVal)*110);
-                      const spH=Math.round((d.spent/maxVal)*110);
+                      const incH=Math.round((d.income/maxVal)*90);
+                      const spH=Math.round((d.spent/maxVal)*90);
                       return <div key={k} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:110}}>
-                          <div title={`Income: ${fmt(d.income)}`} style={{width:mobile?10:14,height:incH,background:C.green,borderRadius:"3px 3px 0 0",minHeight:2}}/>
-                          <div title={`Spent: ${fmt(d.spent)}`} style={{width:mobile?10:14,height:spH,background:C.terra,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:90}}>
+                          <div title={`Income: ${fmt(d.income)}`} style={{width:mobile?10:16,height:incH,background:C.green,borderRadius:"3px 3px 0 0",minHeight:2}}/>
+                          <div title={`Spent: ${fmt(d.spent)}`} style={{width:mobile?10:16,height:spH,background:C.terra,borderRadius:"3px 3px 0 0",minHeight:2}}/>
                         </div>
-                        <div style={{fontSize:9,color:C.text3,fontFamily:"'DM Sans',sans-serif"}}>{d.label}</div>
+                        <div style={{fontSize:9,color:C.text3}}>{d.label}</div>
                       </div>;
                     })}
                   </div>
-                  <div style={{display:"flex",gap:16,marginTop:10}}>
+                  <div style={{display:"flex",gap:16,marginTop:8}}>
                     <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.text3}}><span style={{width:10,height:10,background:C.green,borderRadius:2,display:"inline-block"}}/>Income</span>
                     <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.text3}}><span style={{width:10,height:10,background:C.terra,borderRadius:2,display:"inline-block"}}/>Expenses</span>
                   </div>
                 </div>
-
-                {/* Net savings line chart */}
-                <div style={{background:C.surface,borderRadius:16,padding:mobile?"16px":"20px 24px",boxShadow:C.shadow,border:`1px solid ${C.border}`,gridColumn:mobile?"1":"1/-1"}}>
-                  <div style={{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Net Savings Trend</div>
-                  <div style={{fontSize:11,color:C.text3,marginBottom:10}}>Last 6 months · Income minus expenses</div>
-                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:mobile?90:H}}>
+                <div style={card}>
+                  <div style={{fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text,marginBottom:4}}>Net Savings Trend</div>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:8}}>Income minus expenses</div>
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:mobile?80:H}}>
                     <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} stroke={C.border2} strokeWidth="1" strokeDasharray="4 3"/>
                     {nets.map((n,i)=>{
                       const x=PAD+(i/(months6.length-1||1))*(W-PAD*2);
-                      const y=H/2-(n/maxNet)*(H/2-12);
+                      const y=H/2-(n/maxNet)*(H/2-10);
                       return <g key={i}>
-                        <circle cx={x} cy={y} r={4} fill={n>=0?C.green:C.red}/>
-                        <text x={x} y={n>=0?y-8:y+14} textAnchor="middle" fontSize="8" fill={n>=0?C.green:C.red} fontFamily="DM Sans">{n>=0?"+":""}{Math.round(n/100)/10}k</text>
+                        <circle cx={x} cy={y} r={3} fill={n>=0?C.green:C.red}/>
+                        <text x={x} y={n>=0?y-7:y+12} textAnchor="middle" fontSize="7" fill={n>=0?C.green:C.red} fontFamily="DM Sans">{n>=0?"+":""}{Math.round(n/100)/10}k</text>
                       </g>;
                     })}
                     <polyline points={pts} fill="none" stroke={nets[nets.length-1]>=0?C.green:C.red} strokeWidth="2"/>
                     {months6.map((k,i)=>{
                       const x=PAD+(i/(months6.length-1||1))*(W-PAD*2);
-                      return <text key={k} x={x} y={H-2} textAnchor="middle" fontSize="8" fill={C.text3} fontFamily="DM Sans">{monthlyData[k].label}</text>;
+                      return <text key={k} x={x} y={H-2} textAnchor="middle" fontSize="7" fill={C.text3} fontFamily="DM Sans">{monthlyData[k].label}</text>;
                     })}
                   </svg>
                 </div>
+              </div>
+            );
+
+            return (
+              <div style={{marginTop:20}}>
+                <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+                  <div style={{display:"flex",gap:2,background:C.surface2,borderRadius:99,padding:3,border:`1px solid ${C.border}`}}>
+                    {[['grid','⊞'],['list','≡']].map(([v,icon])=>(
+                      <button key={v} onClick={()=>setChartView(v)} style={{background:chartView===v?C.terra:"none",color:chartView===v?"#fff":C.text3,border:"none",borderRadius:99,padding:"4px 12px",fontSize:14,cursor:"pointer",transition:"all .15s"}}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {chartView==='grid' ? gridCharts : listCharts}
               </div>
             );
           })()}
