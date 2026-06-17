@@ -1959,7 +1959,7 @@ Rules:
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
             <div>
               <div style={{fontSize:mobile?18:20,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{MONTHS[selectedMonth]} Transactions</div>
-              <div style={{fontSize:12,color:C.text3,marginTop:2}}>{expenses.length} expenses · {fmt(totalSpend)}</div>
+              {expenses.length > 0 && <div style={{fontSize:12,color:C.text3,marginTop:2}}>{expenses.length} expenses · {fmt(totalSpend)}</div>}
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button onClick={()=>setSortTx(s=>s==='amount'?'date':'amount')}
