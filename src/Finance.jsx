@@ -2117,14 +2117,23 @@ Rules:
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
                 <input type="number" value={src.amount}
                   onChange={e=>setIncomeSources(p=>p.map((s,j)=>j===i?{...s,amount:parseFloat(e.target.value)||0}:s))}
-                  onBlur={e=>apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({amount:parseFloat(e.target.value)||0})})}
+                  onBlur={e=>{
+                    const amt=parseFloat(e.target.value)||0;
+                    apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({amount:amt})});
+                    const updated=incomeSources.map((s,j)=>j===i?{...s,amount:amt}:s);
+                    const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
+                    updateIncome(total);
+                  }}
                   placeholder="Amount"
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
                 <select value={src.frequency}
                   onChange={async e=>{
                     const freq=e.target.value;
-                    setIncomeSources(p=>p.map((s,j)=>j===i?{...s,frequency:freq}:s));
+                    const updated=incomeSources.map((s,j)=>j===i?{...s,frequency:freq}:s);
+                    setIncomeSources(updated);
                     await apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({frequency:freq})});
+                    const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
+                    updateIncome(total);
                   }}
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 6px",fontSize:11,width:"100%",boxSizing:"border-box"}}>
                   <option value="monthly">Monthly</option>
