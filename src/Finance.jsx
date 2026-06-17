@@ -2011,7 +2011,7 @@ Rules:
                           title="Add receipt" style={{fontSize:10,color:C.terra,background:"none",border:"none",cursor:"pointer",padding:0}}>
                           {uploadingReceipt===tx.id?"⏳":"🧾+"}
                         </button>
-                        {(receiptItems[tx.id]?.length>0||tx.has_receipt)&&<button onClick={async()=>{
+                        {!!(receiptItems[tx.id]?.length>0||tx.has_receipt)&&<button onClick={async()=>{
                             if (expandedTx===tx.id){setExpandedTx(null);return;}
                             if (!receiptItems[tx.id]?.length) {
                               const items=await apiFetch(`/api/receipt-items?tx_id=${tx.id}`);
