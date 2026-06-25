@@ -3,6 +3,14 @@ import ImageInput from "./ImageInput.jsx";
 
 const API = "https://api.familyfinances.uk";
 
+function getFamilySlug() {
+  const parts = window.location.hostname.split('.');
+  if (parts.length >= 3 && parts[0] !== 'www') return parts[0];
+  return 'werlich';
+}
+const FAMILY_SLUG = getFamilySlug();
+const SUPER_ADMIN = 'werlich@outlook.com';
+
 const C = {
   bg:"#F7F4F0", surface:"#FFFFFF", surface2:"#F0EDE8", border:"#E8E2D9", border2:"#D4CFC8",
   text:"#1A1714", text2:"#6B6560", text3:"#A09890",
@@ -668,6 +676,10 @@ export default function Finance({onBack}) {
   const [undoToast, setUndoToast] = useState(null);
   const [yoyData, setYoyData] = useState(null);
   const [pendingImport, setPendingImport] = useState(null); // {txs, selected: Set}
+  const [familyName, setFamilyName] = useState('Family Finances');
+  const [adminFamilies, setAdminFamilies] = useState([]);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [newFamily, setNewFamily] = useState({slug:'', name:'', owner_email:'', members:''});
   const [chartView, setChartView] = useState('grid'); // 'grid' | 'list'
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -773,6 +785,9 @@ export default function Finance({onBack}) {
   };
 
   const loadAll = async () => {
+    // Load family branding
+    const familyInfo = await apiFetch('/api/families/current');
+    if (familyInfo?.name) setFamilyName(familyInfo.name);
     // Get CF Access identity first — this works on the same Pages domain
     const cfEmail = await getCFUserEmail();
     const meData = await apiFetch('/api/me');
@@ -1431,6 +1446,72 @@ Rules:
                 </div>
               )}
             </div>
+
+            {/* Super Admin — only visible to werlich@outlook.com */}
+            {currentUser?.email === SUPER_ADMIN && (
+              <div style={{marginTop:20,padding:"14px 16px",background:"#1A1714",borderRadius:14,border:`1px solid #333`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showAdminPanel?14:0}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.6}}>🔑 Super Admin — Family Instances</div>
+                  <button onClick={async()=>{
+                    if(!showAdminPanel){
+                      const res = await apiFetch('/api/admin/families');
+                      setAdminFamilies(Array.isArray(res)?res:[]);
+                    }
+                    setShowAdminPanel(p=>!p);
+                  }} style={{background:"#333",border:"none",color:"#fff",borderRadius:8,padding:"4px 12px",fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    {showAdminPanel?'Hide':'Manage'}
+                  </button>
+                </div>
+                {showAdminPanel && (<>
+                  {/* Existing families */}
+                  {adminFamilies.map(f=>(
+                    <div key={f.slug} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#222",borderRadius:8,marginBottom:6}}>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600,color:"#fff"}}>{f.name}</div>
+                        <div style={{fontSize:10,color:"#888",marginTop:2}}>
+                          <a href={`https://${f.slug}.familyfinances.uk`} target="_blank" rel="noreferrer" style={{color:C.terra,textDecoration:"none"}}>{f.slug}.familyfinances.uk</a>
+                          {' · '}{f.owner_email}
+                        </div>
+                      </div>
+                      {f.slug !== 'werlich' && (
+                        <button onClick={async()=>{
+                          if(!window.confirm(`Delete family "${f.name}"? This cannot be undone.`))return;
+                          await apiFetch(`/api/admin/families/${f.slug}`,{method:'DELETE'});
+                          setAdminFamilies(p=>p.filter(x=>x.slug!==f.slug));
+                        }} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  {/* Create new family */}
+                  <div style={{marginTop:12,padding:"12px",background:"#222",borderRadius:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#aaa",marginBottom:10,textTransform:"uppercase",letterSpacing:.5}}>New Family Instance</div>
+                    <input value={newFamily.name} onChange={e=>setNewFamily(p=>({...p,name:e.target.value}))} placeholder="Family name (e.g. Johnson Family)"
+                      style={{width:"100%",boxSizing:"border-box",background:"#333",border:"1px solid #444",borderRadius:8,color:"#fff",padding:"7px 10px",fontSize:12,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}/>
+                    <input value={newFamily.slug} onChange={e=>setNewFamily(p=>({...p,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')}))} placeholder="Subdomain slug (e.g. johnson)"
+                      style={{width:"100%",boxSizing:"border-box",background:"#333",border:"1px solid #444",borderRadius:8,color:"#fff",padding:"7px 10px",fontSize:12,marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}/>
+                    {newFamily.slug && <div style={{fontSize:10,color:C.terra,marginBottom:6}}>→ {newFamily.slug}.familyfinances.uk</div>}
+                    <input value={newFamily.owner_email} onChange={e=>setNewFamily(p=>({...p,owner_email:e.target.value}))} placeholder="Admin email (e.g. john@gmail.com)"
+                      style={{width:"100%",boxSizing:"border-box",background:"#333",border:"1px solid #444",borderRadius:8,color:"#fff",padding:"7px 10px",fontSize:12,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}/>
+                    <input value={newFamily.members} onChange={e=>setNewFamily(p=>({...p,members:e.target.value}))} placeholder="Additional members (comma-separated emails)"
+                      style={{width:"100%",boxSizing:"border-box",background:"#333",border:"1px solid #444",borderRadius:8,color:"#fff",padding:"7px 10px",fontSize:12,marginBottom:10,fontFamily:"'DM Sans',sans-serif"}}/>
+                    <button onClick={async()=>{
+                      if(!newFamily.slug||!newFamily.name||!newFamily.owner_email){alert('Fill in all required fields');return;}
+                      const res = await apiFetch('/api/admin/families',{method:'POST',body:JSON.stringify({slug:newFamily.slug,name:newFamily.name,owner_email:newFamily.owner_email})});
+                      if(res?.ok){
+                        const refreshed = await apiFetch('/api/admin/families');
+                        setAdminFamilies(Array.isArray(refreshed)?refreshed:[]);
+                        setNewFamily({slug:'',name:'',owner_email:'',members:''});
+                      } else { alert('Failed to create family'); }
+                    }} style={{width:"100%",background:C.terra,color:"#fff",border:"none",borderRadius:8,padding:"9px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                      Create Family Instance
+                    </button>
+                    <div style={{fontSize:10,color:"#666",marginTop:8,lineHeight:1.5}}>
+                      After creating: add all member emails to Cloudflare Access → Applications → your {'{slug}'}.familyfinances.uk policy.
+                    </div>
+                  </div>
+                </>)}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1472,8 +1553,8 @@ Rules:
             <div style={{display:"flex",alignItems:"center",gap:20}}>
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
-                <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.50</span></div>
+                <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.51</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>

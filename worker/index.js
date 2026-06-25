@@ -8,6 +8,16 @@ const CORS = {
 
 function json(data, status=200) { return new Response(JSON.stringify(data), {status, headers:CORS}); }
 function err(msg, status=400) { return new Response(JSON.stringify({error:msg}), {status, headers:CORS}); }
+function getFamilyId(request) {
+  const origin = request.headers.get('Origin') || request.headers.get('Referer') || '';
+  try {
+    const hostname = new URL(origin).hostname; // e.g. johnson.familyfinances.uk
+    const parts = hostname.split('.');
+    if (parts.length >= 3 && parts[0] !== 'www') return parts[0];
+  } catch(_) {}
+  return 'werlich'; // root domain = main family
+}
+
 function getUser(request) {
   // Cloudflare Access sets this header after authentication
   const cfEmail = request.headers.get('CF-Access-Authenticated-User-Email');
@@ -45,12 +55,25 @@ async function initDB(db) {
     `ALTER TABLE monthly_settings ADD COLUMN budgets TEXT DEFAULT '{}'`,
     `ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''`,
     `ALTER TABLE users ADD COLUMN household_id TEXT DEFAULT NULL`,
+    // Multi-family support
+    `CREATE TABLE IF NOT EXISTS families (slug TEXT PRIMARY KEY, name TEXT NOT NULL, owner_email TEXT NOT NULL, created_at TEXT DEFAULT '')`,
+    `ALTER TABLE transactions ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE debts ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE monthly_settings ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE savings_goals ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE custom_categories ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE receipt_items ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE income_sources ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE household_members ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
+    `ALTER TABLE households ADD COLUMN family_id TEXT DEFAULT 'werlich'`,
     // Indexes — after columns exist
     `CREATE INDEX IF NOT EXISTS idx_txs_email_month ON transactions(email, month_key)`,
     `CREATE INDEX IF NOT EXISTS idx_receipt_tx ON receipt_items(tx_id)`,
     `CREATE INDEX IF NOT EXISTS idx_debts_email ON debts(email)`,
     `CREATE INDEX IF NOT EXISTS idx_debts_account ON debts(account_pattern)`,
     `CREATE INDEX IF NOT EXISTS idx_hm_email ON household_members(email)`,
+    `CREATE INDEX IF NOT EXISTS idx_tx_family ON transactions(family_id, email, month_key)`,
+    `INSERT OR IGNORE INTO families (slug, name, owner_email, created_at) VALUES ('werlich', 'Werlich Family', 'werlich@outlook.com', '')`,
   ];
   for (const sql of stmts) {
     try { await db.exec(sql); } catch(_) {}
@@ -134,6 +157,35 @@ async function handleRequest(request, env) {
     if (!user) return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:CORS});
     await ensureUser(env.DB, user);
 
+    const familyId = getFamilyId(request);
+
+    // ── ADMIN ENDPOINTS ───────────────────────────────────────────────────────
+    if (path === '/api/admin/families' && method === 'GET') {
+      if (user !== 'werlich@outlook.com') return err('Forbidden', 403);
+      const families = await env.DB.prepare('SELECT * FROM families ORDER BY created_at DESC').all();
+      return json(families.results || []);
+    }
+    if (path === '/api/admin/families' && method === 'POST') {
+      if (user !== 'werlich@outlook.com') return err('Forbidden', 403);
+      const body = await request.json();
+      if (!body.slug || !body.name || !body.owner_email) return err('slug, name, owner_email required');
+      await env.DB.prepare('INSERT OR IGNORE INTO families (slug, name, owner_email, created_at) VALUES (?, ?, ?, ?)').bind(body.slug, body.name, body.owner_email, new Date().toISOString()).run();
+      return json({ok:true, slug: body.slug});
+    }
+    if (path.startsWith('/api/admin/families/') && method === 'DELETE') {
+      if (user !== 'werlich@outlook.com') return err('Forbidden', 403);
+      const slug = path.split('/').pop();
+      if (slug === 'werlich') return err('Cannot delete the main family', 400);
+      await env.DB.prepare('DELETE FROM families WHERE slug=?').bind(slug).run();
+      return json({ok:true});
+    }
+
+    // ── FAMILIES CURRENT ──────────────────────────────────────────────────────
+    if (path === '/api/families/current' && method === 'GET') {
+      const family = await env.DB.prepare('SELECT slug, name, owner_email FROM families WHERE slug=?').bind(familyId).first();
+      return json(family || {slug: familyId, name: 'Family Finances', owner_email: ''});
+    }
+
     // ── /api/me ───────────────────────────────────────────────────────────────
     if (path === '/api/me' && method === 'GET') {
       const userData = await env.DB.prepare('SELECT email, display_name, household_id FROM users WHERE email=?').bind(user).first();
@@ -193,7 +245,7 @@ async function handleRequest(request, env) {
     if (path === '/api/transactions' && method === 'GET') {
       const monthKey = url.searchParams.get('month');
       if (!monthKey) return err('month required');
-      const txs = await env.DB.prepare('SELECT * FROM transactions WHERE email = ? AND month_key = ? ORDER BY date DESC').bind(user, monthKey).all();
+      const txs = await env.DB.prepare('SELECT * FROM transactions WHERE email = ? AND month_key = ? AND family_id = ? ORDER BY date DESC').bind(user, monthKey, familyId).all();
       return json(txs.results||[]);
     }
     if (path === '/api/transactions' && method === 'POST') {
@@ -202,32 +254,32 @@ async function handleRequest(request, env) {
       const monthKey = url.searchParams.get('month');
       if (!monthKey) return err('month required');
       for (const tx of txs) {
-        await env.DB.prepare('INSERT OR REPLACE INTO transactions (id,email,month_key,date,merchant,amount,category,source) VALUES (?,?,?,?,?,?,?,?)').bind(tx.id||crypto.randomUUID(),user,monthKey,tx.date,tx.merchant,tx.amount,tx.category,tx.source).run();
+        await env.DB.prepare('INSERT OR REPLACE INTO transactions (id,email,month_key,date,merchant,amount,category,source,family_id) VALUES (?,?,?,?,?,?,?,?,?)').bind(tx.id||crypto.randomUUID(),user,monthKey,tx.date,tx.merchant,tx.amount,tx.category,tx.source,familyId).run();
       }
       return json({ok:true,count:txs.length});
     }
     if (path === '/api/transactions' && method === 'DELETE') {
       const monthKey = url.searchParams.get('month');
       const txId = url.searchParams.get('id');
-      if (txId) await env.DB.prepare('DELETE FROM transactions WHERE id = ? AND email = ?').bind(txId, user).run();
-      else if (monthKey) await env.DB.prepare('DELETE FROM transactions WHERE email = ? AND month_key = ?').bind(user, monthKey).run();
+      if (txId) await env.DB.prepare('DELETE FROM transactions WHERE id = ? AND email = ? AND family_id = ?').bind(txId, user, familyId).run();
+      else if (monthKey) await env.DB.prepare('DELETE FROM transactions WHERE email = ? AND month_key = ? AND family_id = ?').bind(user, monthKey, familyId).run();
       return json({ok:true});
     }
     if (path.startsWith('/api/transactions/') && method === 'PUT') {
       const txId = path.split('/').pop();
       const body = await request.json();
-      if (body.category !== undefined) await env.DB.prepare('UPDATE transactions SET category = ? WHERE id = ? AND email = ?').bind(body.category, txId, user).run();
-      if (body.has_receipt !== undefined) await env.DB.prepare('UPDATE transactions SET has_receipt = ? WHERE id = ? AND email = ?').bind(body.has_receipt?1:0, txId, user).run();
+      if (body.category !== undefined) await env.DB.prepare('UPDATE transactions SET category = ? WHERE id = ? AND email = ? AND family_id = ?').bind(body.category, txId, user, familyId).run();
+      if (body.has_receipt !== undefined) await env.DB.prepare('UPDATE transactions SET has_receipt = ? WHERE id = ? AND email = ? AND family_id = ?').bind(body.has_receipt?1:0, txId, user, familyId).run();
       return json({ok:true});
     }
     if (path === '/api/debts' && method === 'GET') {
-      const debts = await env.DB.prepare('SELECT * FROM debts WHERE email = ? ORDER BY priority ASC').bind(user).all();
+      const debts = await env.DB.prepare('SELECT * FROM debts WHERE email = ? AND family_id = ? ORDER BY priority ASC').bind(user, familyId).all();
       return json(debts.results||[]);
     }
     if (path === '/api/debts' && method === 'POST') {
       const body = await request.json();
       const id = body.id||crypto.randomUUID();
-      await env.DB.prepare('INSERT OR REPLACE INTO debts (id,email,name,balance,original_balance,payment,rate,deadline,deadline_date,type,priority,note,color,bg,account_pattern) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.balance,body.original_balance||body.balance,body.payment,body.rate||0,body.deadline||'ongoing',body.deadline_date||null,body.type||'loan',body.priority||99,body.note||'',body.color||'#C4603A',body.bg||'#F5E6DF',body.account_pattern||'').run();
+      await env.DB.prepare('INSERT OR REPLACE INTO debts (id,email,name,balance,original_balance,payment,rate,deadline,deadline_date,type,priority,note,color,bg,account_pattern,family_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.balance,body.original_balance||body.balance,body.payment,body.rate||0,body.deadline||'ongoing',body.deadline_date||null,body.type||'loan',body.priority||99,body.note||'',body.color||'#C4603A',body.bg||'#F5E6DF',body.account_pattern||'',familyId).run();
       return json({ok:true,id});
     }
     if (path.startsWith('/api/debts/') && path !== '/api/debts/reorder' && method === 'PUT') {
@@ -244,85 +296,85 @@ async function handleRequest(request, env) {
       if (body.note!==undefined){fields.push('note=?');values.push(body.note);}
       if (body.account_pattern!==undefined){fields.push('account_pattern=?');values.push(body.account_pattern);}
       if (!fields.length) return err('nothing to update');
-      values.push(debtId, user);
-      await env.DB.prepare(`UPDATE debts SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();
+      values.push(debtId, user, familyId);
+      await env.DB.prepare(`UPDATE debts SET ${fields.join(',')} WHERE id=? AND email=? AND family_id=?`).bind(...values).run();
       return json({ok:true});
     }
     if (path.startsWith('/api/debts/') && method === 'DELETE') {
       const debtId = path.split('/').pop();
-      await env.DB.prepare('DELETE FROM debts WHERE id=? AND email=?').bind(debtId, user).run();
+      await env.DB.prepare('DELETE FROM debts WHERE id=? AND email=? AND family_id=?').bind(debtId, user, familyId).run();
       return json({ok:true});
     }
     if (path === '/api/debts/reorder' && method === 'POST') {
       const body = await request.json();
       for (const item of body) {
-        await env.DB.prepare('UPDATE debts SET priority=? WHERE id=? AND email=?').bind(item.priority, item.id, user).run();
+        await env.DB.prepare('UPDATE debts SET priority=? WHERE id=? AND email=? AND family_id=?').bind(item.priority, item.id, user, familyId).run();
       }
       return json({ok:true});
     }
     if (path === '/api/monthly' && method === 'GET') {
       const monthKey = url.searchParams.get('month');
-      const settings = await env.DB.prepare('SELECT * FROM monthly_settings WHERE email=? AND month_key=?').bind(user, monthKey).first();
+      const settings = await env.DB.prepare('SELECT * FROM monthly_settings WHERE email=? AND month_key=? AND family_id=?').bind(user, monthKey, familyId).first();
       if (!settings) return json({});
       return json({...settings, budgets: JSON.parse(settings.budgets||'{}')});
     }
     if (path === '/api/monthly' && method === 'PUT') {
       const monthKey = url.searchParams.get('month');
       const body = await request.json();
-      await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income,budgets) VALUES (?,?,?,?)').bind(user, monthKey, body.income, JSON.stringify(body.budgets||{})).run();
+      await env.DB.prepare('INSERT OR REPLACE INTO monthly_settings (email,month_key,income,budgets,family_id) VALUES (?,?,?,?,?)').bind(user, monthKey, body.income, JSON.stringify(body.budgets||{}), familyId).run();
       return json({ok:true});
     }
     // ── RECEIPT ITEMS ─────────────────────────────────────────────────
     if (path === '/api/receipt-items' && method === 'GET') {
       const txId = url.searchParams.get('tx_id');
-      const items = await env.DB.prepare('SELECT * FROM receipt_items WHERE tx_id=? AND email=? ORDER BY sort_order ASC').bind(txId, user).all();
+      const items = await env.DB.prepare('SELECT * FROM receipt_items WHERE tx_id=? AND email=? AND family_id=? ORDER BY sort_order ASC').bind(txId, user, familyId).all();
       return json(items.results||[]);
     }
     if (path === '/api/receipt-items' && method === 'POST') {
       const body = await request.json();
       // Replace all items for this tx_id
-      await env.DB.prepare('DELETE FROM receipt_items WHERE tx_id=? AND email=?').bind(body.tx_id, user).run();
+      await env.DB.prepare('DELETE FROM receipt_items WHERE tx_id=? AND email=? AND family_id=?').bind(body.tx_id, user, familyId).run();
       for (let i=0; i<body.items.length; i++) {
         const item = body.items[i];
-        await env.DB.prepare('INSERT INTO receipt_items (id,tx_id,email,name,amount,category,sort_order) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),body.tx_id,user,item.name,item.amount,item.category,i).run();
+        await env.DB.prepare('INSERT INTO receipt_items (id,tx_id,email,name,amount,category,sort_order,family_id) VALUES (?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),body.tx_id,user,item.name,item.amount,item.category,i,familyId).run();
       }
       return json({ok:true});
     }
     if (path.startsWith('/api/receipt-items/') && method === 'PUT') {
       const itemId = path.split('/').pop();
       const body = await request.json();
-      await env.DB.prepare('UPDATE receipt_items SET category=? WHERE id=? AND email=?').bind(body.category, itemId, user).run();
+      await env.DB.prepare('UPDATE receipt_items SET category=? WHERE id=? AND email=? AND family_id=?').bind(body.category, itemId, user, familyId).run();
       return json({ok:true});
     }
     // ── CUSTOM CATEGORIES ────────────────────────────────────────────
     if (path === '/api/categories' && method === 'GET') {
-      const cats = await env.DB.prepare('SELECT * FROM custom_categories WHERE email=? ORDER BY created_at ASC').bind(user).all();
+      const cats = await env.DB.prepare('SELECT * FROM custom_categories WHERE email=? AND family_id=? ORDER BY created_at ASC').bind(user, familyId).all();
       return json(cats.results||[]);
     }
     if (path === '/api/categories' && method === 'POST') {
       const body = await request.json();
       const id = crypto.randomUUID();
-      await env.DB.prepare('INSERT INTO custom_categories (id,email,label,icon,color,bg) VALUES (?,?,?,?,?,?)').bind(id,user,body.label,body.icon||'📌',body.color||'#6B6560',body.bg||'#F0EDE8').run();
+      await env.DB.prepare('INSERT INTO custom_categories (id,email,label,icon,color,bg,family_id) VALUES (?,?,?,?,?,?,?)').bind(id,user,body.label,body.icon||'📌',body.color||'#6B6560',body.bg||'#F0EDE8',familyId).run();
       return json({ok:true,id});
     }
     if (path.startsWith('/api/categories/') && method === 'DELETE') {
       const catId = path.split('/').pop();
-      await env.DB.prepare('DELETE FROM custom_categories WHERE id=? AND email=?').bind(catId,user).run();
+      await env.DB.prepare('DELETE FROM custom_categories WHERE id=? AND email=? AND family_id=?').bind(catId,user,familyId).run();
       return json({ok:true});
     }
     if (path === '/api/months' && method === 'GET') {
-      const months = await env.DB.prepare('SELECT DISTINCT month_key FROM transactions WHERE email=? ORDER BY month_key DESC').bind(user).all();
+      const months = await env.DB.prepare('SELECT DISTINCT month_key FROM transactions WHERE email=? AND family_id=? ORDER BY month_key DESC').bind(user, familyId).all();
       return json((months.results||[]).map(m=>m.month_key));
     }
     // ── INCOME SOURCES ───────────────────────────────────────────────
     if (path === '/api/income-sources' && method === 'GET') {
-      const sources = await env.DB.prepare('SELECT * FROM income_sources WHERE email=? ORDER BY created_at ASC').bind(user).all();
+      const sources = await env.DB.prepare('SELECT * FROM income_sources WHERE email=? AND family_id=? ORDER BY created_at ASC').bind(user, familyId).all();
       return json(sources.results||[]);
     }
     if (path === '/api/income-sources' && method === 'POST') {
       const body = await request.json();
       const id = body.id || crypto.randomUUID();
-      await env.DB.prepare('INSERT OR REPLACE INTO income_sources (id,email,description,amount,frequency) VALUES (?,?,?,?,?)').bind(id,user,body.description||'',body.amount||0,body.frequency||'monthly').run();
+      await env.DB.prepare('INSERT OR REPLACE INTO income_sources (id,email,description,amount,frequency,family_id) VALUES (?,?,?,?,?,?)').bind(id,user,body.description||'',body.amount||0,body.frequency||'monthly',familyId).run();
       return json({ok:true,id});
     }
     if (path.startsWith('/api/income-sources/') && method === 'PUT') {
@@ -333,24 +385,24 @@ async function handleRequest(request, env) {
       if(body.amount!==undefined){fields.push('amount=?');values.push(body.amount);}
       if(body.frequency!==undefined){fields.push('frequency=?');values.push(body.frequency);}
       if(!fields.length) return json({ok:true});
-      values.push(srcId,user);
-      await env.DB.prepare(`UPDATE income_sources SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();
+      values.push(srcId,user,familyId);
+      await env.DB.prepare(`UPDATE income_sources SET ${fields.join(',')} WHERE id=? AND email=? AND family_id=?`).bind(...values).run();
       return json({ok:true});
     }
     if (path.startsWith('/api/income-sources/') && method === 'DELETE') {
       const srcId = path.split('/').pop();
-      await env.DB.prepare('DELETE FROM income_sources WHERE id=? AND email=?').bind(srcId,user).run();
+      await env.DB.prepare('DELETE FROM income_sources WHERE id=? AND email=? AND family_id=?').bind(srcId,user,familyId).run();
       return json({ok:true});
     }
     // ── SAVINGS ─────────────────────────────────────────────────────
     if (path === '/api/savings' && method === 'GET') {
-      const goals = await env.DB.prepare('SELECT * FROM savings_goals WHERE email = ? ORDER BY priority ASC').bind(user).all();
+      const goals = await env.DB.prepare('SELECT * FROM savings_goals WHERE email = ? AND family_id = ? ORDER BY priority ASC').bind(user, familyId).all();
       return json(goals.results || []);
     }
     if (path === '/api/savings' && method === 'POST') {
       const body = await request.json();
       const id = body.id || crypto.randomUUID();
-      await env.DB.prepare('INSERT OR REPLACE INTO savings_goals (id,email,name,target_amount,current_amount,target_date,priority,icon,color) VALUES (?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.target_amount,body.current_amount||0,body.target_date||null,body.priority||99,body.icon||'💰',body.color||'#3D8B6E').run();
+      await env.DB.prepare('INSERT OR REPLACE INTO savings_goals (id,email,name,target_amount,current_amount,target_date,priority,icon,color,family_id) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(id,user,body.name,body.target_amount,body.current_amount||0,body.target_date||null,body.priority||99,body.icon||'💰',body.color||'#3D8B6E',familyId).run();
       return json({ok:true,id});
     }
     if (path.startsWith('/api/savings/') && method === 'PUT') {
@@ -365,17 +417,17 @@ async function handleRequest(request, env) {
       if (body.icon!==undefined){fields.push('icon=?');values.push(body.icon);}
       if (body.color!==undefined){fields.push('color=?');values.push(body.color);}
       if (!fields.length) return err('nothing to update');
-      values.push(goalId, user);
-      await env.DB.prepare(`UPDATE savings_goals SET ${fields.join(',')} WHERE id=? AND email=?`).bind(...values).run();
+      values.push(goalId, user, familyId);
+      await env.DB.prepare(`UPDATE savings_goals SET ${fields.join(',')} WHERE id=? AND email=? AND family_id=?`).bind(...values).run();
       return json({ok:true});
     }
     if (path.startsWith('/api/savings/') && method === 'DELETE') {
       const goalId = path.split('/').pop();
-      await env.DB.prepare('DELETE FROM savings_goals WHERE id=? AND email=?').bind(goalId, user).run();
+      await env.DB.prepare('DELETE FROM savings_goals WHERE id=? AND email=? AND family_id=?').bind(goalId, user, familyId).run();
       return json({ok:true});
     }
 
     return err('Not found', 404);
 }
 // deployed Mon Jun 16 2026
-// v1.0.37 - Cloudflare Access auth + household model
+// v1.0.51 - multi-family isolation with family_id scoping
