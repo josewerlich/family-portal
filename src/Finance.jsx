@@ -33,13 +33,14 @@ const CATEGORIES = [
   {id:"personal",     label:"Personal Care", color:"#7A3D8A",bg:"#F2E8F5",icon:"✂️"},
   {id:"medical",      label:"Medical",       color:"#C43A3A",bg:"#F5E6E6",icon:"🏥"},
   {id:"business",     label:"Business Trip", color:"#2E4057",bg:"#E8ECF0",icon:"💼"},
+  {id:"entertainment", label:"Entertainment",  color:"#6A3D9A",bg:"#EEE6F8",icon:"🎬"},
   {id:"other",        label:"Other",         color:"#6B6560",bg:"#F0EDE8",icon:"📌"},
 ];
 
 const BUDGET = {
   groceries:1311,restaurants:250,gas:300,clothing:100,subscriptions:230,
   utilities:168,mortgage:3024,insurance:208,auto:150,health:189,kids:80,
-  pet:50,giving:1500,amazon:200,home:64,personal:55,medical:100,other:100,
+  pet:50,giving:1500,amazon:200,home:64,personal:55,medical:100,entertainment:100,other:100,
 };
 
 const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -114,6 +115,7 @@ function categorize(desc) {
   if(/PETLAND|PETSMART|PETCO|GREENIES|CHUCKIT/.test(d))return"pet";
   if(/GREAT CLIPS|SALON|BARBER|BEAUTY|PURLISSE/.test(d))return"personal";
   if(/OLENTANGY|SCHOOL|DAYCARE/.test(d))return"kids";
+  if(/NETFLIX|HULU|DISNEY\+|HBO|YOUTUBE|AMAZON PRIME|APPLE TV|PARAMOUNT|PEACOCK|CRUNCHYROLL|AMC|CINEMA|MOVIE|THEATER|THEATRE|TICKETMASTER|STUBHUB|EVENT|CONCERT|ESPN|SPORT|DAVE AND BUSTER|BOWLING|ARCADE|LASER QUEST|TOPGOLF|MINIATURE GOLF|ESCAPE ROOM|TRAMPOLINE|MUSEUM|ZOO|AQUARIUM|TICKET|ENTERTAINMENT/.test(d))return"entertainment";
   return"other";
 }
 
@@ -1379,7 +1381,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.45</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.46</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
