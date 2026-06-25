@@ -97,6 +97,7 @@ function isCreditCardPayment(desc) {
 
 function categorize(desc) {
   const d=desc.toUpperCase();
+  if(/PAYROLL|DIRECT DEPOSIT|ACH CREDIT|ACH DEP|DIRECT DEP|PAYCHECK|SALARY|WAGES|DEPOSIT/.test(d))return"income";
   if(/ROCKET MORTGAGE|WATERCRESS|MORTGAGE/.test(d))return"mortgage";
   if(/ADVENTIST|TITHE|OFFERING|CHURCH|GIVING/.test(d))return"giving";
   if(/KROGER|MEIJER|COSTCO WHSE|TRADER JOE|ALDI|WHOLE FOODS|GIANT EAGLE/.test(d))return"groceries";
@@ -124,9 +125,14 @@ function parseChaseCSV(text){
     const date=cols[0].replace(/"/g,'').trim();
     const desc=cols[2].replace(/"/g,'').trim();
     const amount=parseFloat(cols[5].replace(/"/g,'').trim());
-    if(isNaN(amount)||amount>=0)continue;
+    if(isNaN(amount)||amount===0)continue;
     const[m,d]=date.split('/');if(!m||!d)continue;
-    txs.push({id:crypto.randomUUID(),date:`${m.padStart(2,'0')}/${d.padStart(2,'0')}`,merchant:desc,amount:Math.abs(amount),category:categorize(desc),source:"Chase"});
+    // Chase: negative = expense, positive = deposit/income
+    if(amount>0){
+      txs.push({id:crypto.randomUUID(),date:`${m.padStart(2,'0')}/${d.padStart(2,'0')}`,merchant:desc,amount,category:'income',source:"Chase",type:'income'});
+    } else {
+      txs.push({id:crypto.randomUUID(),date:`${m.padStart(2,'0')}/${d.padStart(2,'0')}`,merchant:desc,amount:Math.abs(amount),category:categorize(desc),source:"Chase"});
+    }
   }
   return txs;
 }
@@ -165,7 +171,8 @@ function parsePNCCSV(text){
       mm=parts[0];dd=parts[1];
     }
     const type=isIncome?'income':'expense';
-    txs.push({id:crypto.randomUUID(),date:`${mm.padStart(2,'0')}/${dd.padStart(2,'0')}`,merchant:desc,amount,category:categorize(desc),source:"PNC",type});
+    const cat=isIncome?'income':categorize(desc);
+    txs.push({id:crypto.randomUUID(),date:`${mm.padStart(2,'0')}/${dd.padStart(2,'0')}`,merchant:desc,amount,category:cat,source:"PNC",type});
   }
   return txs;
 }
@@ -1372,7 +1379,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.44</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.45</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
