@@ -19,6 +19,7 @@ const CATEGORIES = [
   {id:"gas",          label:"Gas",           color:"#B8860B",bg:"#FBF4E0",icon:"⛽"},
   {id:"clothing",     label:"Clothing",      color:"#7B5EA7",bg:"#F0EBF8",icon:"👗"},
   {id:"subscriptions",label:"Subscriptions", color:"#2C6E8A",bg:"#E5F2F7",icon:"📱"},
+  {id:"phone",        label:"Phone",         color:"#1A6B8A",bg:"#DDF0F7",icon:"📞"},
   {id:"utilities",    label:"Utilities",     color:"#5A6E7A",bg:"#EDF1F4",icon:"💡"},
   {id:"mortgage",     label:"Mortgage",      color:"#C43A3A",bg:"#F5E6E6",icon:"🏠"},
   {id:"car_loan",     label:"Car Loan",      color:"#1A5276",bg:"#D6EAF8",icon:"🚘"},
@@ -39,7 +40,7 @@ const CATEGORIES = [
 
 const BUDGET = {
   groceries:1311,restaurants:250,gas:300,clothing:100,subscriptions:230,
-  utilities:168,mortgage:3024,insurance:208,auto:150,health:189,kids:80,
+  phone:363,utilities:168,mortgage:3024,insurance:208,auto:150,health:189,kids:80,
   pet:50,giving:1500,amazon:200,home:64,personal:55,medical:100,entertainment:100,other:100,
 };
 
@@ -105,7 +106,8 @@ function categorize(desc) {
   if(/COSTCO GAS|MARATHON|SHELL|BP#|SHEETZ|SUNOCO|EXXON|CHEVRON|SPEEDWAY|HAHN QUICK/.test(d))return"gas";
   if(/MCDONALD|BURGER KING|WENDY|CHIPOTLE|PANDA EXPRESS|STARBUCKS|SUBWAY|TACO BELL|PIZZA|RESTAURANT|CAFE|SUSHI|ESTILO BRAZIL|QAMARIA|WHITS/.test(d))return"restaurants";
   if(/AMAZON MKTPL|AMAZON\.COM|AMZN\.COM/.test(d))return"amazon";
-  if(/APPLE\.COM|SPOTIFY|NETFLIX|HULU|DISNEY|MICROSOFT|TMOBILE|T-MOBILE|VIVINT|BREEZELINE|AT&T|VERIZON/.test(d))return"subscriptions";
+  if(/TMOBILE|T-MOBILE|AT&T|VERIZON|BOOST MOBILE|CRICKET|MINT MOBILE|METRO PCS|SPRINT|US CELLULAR/.test(d))return"phone";
+  if(/APPLE\.COM|SPOTIFY|NETFLIX|HULU|DISNEY|MICROSOFT|VIVINT|BREEZELINE/.test(d))return"subscriptions";
   if(/AEP|EVERBRIGHT|SUBURBAN NATURAL|DOMINION|DUKE ENERGY/.test(d))return"utilities";
   if(/GEICO|PROGRESSIVE|ALLSTATE|KANGURO|NORTHWESTERN MUTUAL|INSURANCE/.test(d))return"insurance";
   if(/VALVOLINE|AUTOZONE|VIOC|JIFFY LUBE|O'REILLY|NAPA|TOMMY|CAR WASH|IRON PONY|MOTOR VEHIC|BMV/.test(d))return"auto";
@@ -1381,7 +1383,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.46</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.47</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
