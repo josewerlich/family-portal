@@ -1172,7 +1172,11 @@ Rules:
 
   const updateIncome = async (val) => {
     setIncome(val);
-    await apiFetch('/api/user', {method:'PUT', body:JSON.stringify({income:val})});
+    // Save to both user record AND monthly settings so CSV-imported months don't override manual input
+    await Promise.all([
+      apiFetch('/api/user', {method:'PUT', body:JSON.stringify({income:val})}),
+      apiFetch(`/api/monthly?month=${monthKey}`, {method:'PUT', body:JSON.stringify({income:val, budgets:monthBudgets})}),
+    ]);
   };
 
   const T=(t)=>({
@@ -2120,20 +2124,26 @@ Rules:
                   onBlur={e=>{
                     const amt=parseFloat(e.target.value)||0;
                     apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({amount:amt})});
-                    const updated=incomeSources.map((s,j)=>j===i?{...s,amount:amt}:s);
-                    const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
-                    updateIncome(total);
+                    // Use functional update to get latest state (avoids stale closure)
+                    setIncomeSources(prev=>{
+                      const updated=prev.map((s,j)=>j===i?{...s,amount:amt}:s);
+                      const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
+                      updateIncome(total);
+                      return updated;
+                    });
                   }}
                   placeholder="Amount"
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 10px",fontSize:12,width:"100%",boxSizing:"border-box"}}/>
                 <select value={src.frequency}
                   onChange={async e=>{
                     const freq=e.target.value;
-                    const updated=incomeSources.map((s,j)=>j===i?{...s,frequency:freq}:s);
-                    setIncomeSources(updated);
                     await apiFetch(`/api/income-sources/${src.id}`,{method:'PUT',body:JSON.stringify({frequency:freq})});
-                    const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
-                    updateIncome(total);
+                    setIncomeSources(prev=>{
+                      const updated=prev.map((s,j)=>j===i?{...s,frequency:freq}:s);
+                      const total=updated.reduce((s,x)=>{if(x.frequency==='biweekly')return s+(x.amount*26/12);if(x.frequency==='weekly')return s+(x.amount*52/12);return s+x.amount;},0);
+                      updateIncome(total);
+                      return updated;
+                    });
                   }}
                   style={{background:C.surface2,border:`1px solid ${C.border2}`,borderRadius:8,color:C.text,padding:"7px 6px",fontSize:11,width:"100%",boxSizing:"border-box"}}>
                   <option value="monthly">Monthly</option>
