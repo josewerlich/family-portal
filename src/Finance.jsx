@@ -667,6 +667,7 @@ export default function Finance({onBack}) {
   const [txSearch, setTxSearch] = useState('');
   const [undoToast, setUndoToast] = useState(null);
   const [yoyData, setYoyData] = useState(null);
+  const [pendingImport, setPendingImport] = useState(null); // {txs, selected: Set}
   const [chartView, setChartView] = useState('grid'); // 'grid' | 'list'
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -1027,11 +1028,25 @@ Rules: total = sum of all items. date format MM/DD. amounts are numbers (no $ si
       } catch(err) { l.push(`✗ ${file.name}: ${err.message}`); setLog([...l]); }
     }
     if (newTxs.length > 0) {
-      // Separate income, credit card payments, and expenses
-      const incomeTxs = newTxs.filter(t => t.type === 'income');
-      const ccPayments = newTxs.filter(t => t.type !== 'income' && isCreditCardPayment(t.merchant));
-      const expenseTxs = newTxs.filter(t => t.type !== 'income' && !isCreditCardPayment(t.merchant));
-      l.push(`Found: ${expenseTxs.length} expenses, ${ccPayments.length} CC/loan payments, ${incomeTxs.length} income`); setLog([...l]);
+      // Show review screen — user picks which to import
+      const selected = new Set(newTxs.map(t => t.id));
+      setPendingImport({txs: newTxs, selected});
+      setLoading(false);
+      return;
+    } else {
+      l.push('⚠ No transactions extracted from file'); setLog([...l]);
+    }
+    setLoading(false);
+  };
+
+  const saveImportedTxs = async (txsToSave) => {
+    const l = [];
+    setLog([]);
+    // Separate income, credit card payments, and expenses
+    const incomeTxs = txsToSave.filter(t => t.type === 'income');
+    const ccPayments = txsToSave.filter(t => t.type !== 'income' && isCreditCardPayment(t.merchant));
+    const expenseTxs = txsToSave.filter(t => t.type !== 'income' && !isCreditCardPayment(t.merchant));
+    l.push(`Importing: ${expenseTxs.length} expenses, ${ccPayments.length} CC payments, ${incomeTxs.length} income`); setLog([...l]);
 
       // Tag CC payments with their own category so they're saved but excluded from expense totals
       const ccPaymentTagged = ccPayments.map(t => ({...t, category:'cc_payment'}));
@@ -1143,10 +1158,6 @@ Rules: total = sum of all items. date format MM/DD. amounts are numbers (no $ si
           l.push(`✓ Auto-updated ${matches.length} debt balance(s)`); setLog([...l]);
         }
       }
-    } else {
-      l.push('⚠ No transactions extracted from file'); setLog([...l]);
-    }
-    setLoading(false);
   };
 
   const confirmDebtPayments = async (confirmed) => {
@@ -1274,6 +1285,80 @@ Rules:
       {showAddDebt && <AddDebtModal onAdd={addDebt} onClose={()=>setShowAddDebt(false)}/>}
       {debtPaymentMatches && <DebtPaymentModal matches={debtPaymentMatches} onConfirm={confirmDebtPayments} onClose={()=>setDebtPaymentMatches(null)}/>}
 
+      {/* ── Import Review Modal ── */}
+      {pendingImport && (()=>{
+        const {txs: allTxs, selected} = pendingImport;
+        const allCatsLocal = [...CATEGORIES, ...customCategories.map(c=>({...c,id:c.id}))];
+        const groups = [
+          {label:'💳 Credit Card Payments', key:'cc', items: allTxs.filter(t=>t.category==='cc_payment'||isCreditCardPayment(t.merchant||''))},
+          {label:'⬆ Income / Deposits',    key:'inc', items: allTxs.filter(t=>t.type==='income')},
+          {label:'🧾 Expenses',             key:'exp', items: allTxs.filter(t=>t.type!=='income'&&!isCreditCardPayment(t.merchant||'')&&t.category!=='cc_payment')},
+        ].filter(g=>g.items.length>0);
+        const toggleAll = (items, on) => {
+          const next = new Set(selected);
+          items.forEach(t => on ? next.add(t.id) : next.delete(t.id));
+          setPendingImport(p=>({...p, selected: next}));
+        };
+        const toggle = (id) => {
+          const next = new Set(selected);
+          next.has(id) ? next.delete(id) : next.add(id);
+          setPendingImport(p=>({...p, selected: next}));
+        };
+        return (
+          <div style={{position:"fixed",inset:0,zIndex:4000,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setPendingImport(null);}}>
+            <div style={{background:C.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:680,maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 -8px 40px rgba(0,0,0,0.3)"}}>
+              <div style={{padding:"18px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Review Import</div>
+                  <div style={{fontSize:11,color:C.text3,marginTop:2}}>{selected.size} of {allTxs.length} selected · uncheck anything you don't want</div>
+                </div>
+                <button onClick={()=>setPendingImport(null)} style={{background:"none",border:"none",color:C.text3,fontSize:20,cursor:"pointer",padding:"0 4px"}}>✕</button>
+              </div>
+              <div style={{overflowY:"auto",flex:1,padding:"12px 20px"}}>
+                {groups.map(g=>{
+                  const allOn = g.items.every(t=>selected.has(t.id));
+                  const anyOn = g.items.some(t=>selected.has(t.id));
+                  return (
+                    <div key={g.key} style={{marginBottom:16}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                        <input type="checkbox" checked={allOn} ref={el=>{if(el)el.indeterminate=!allOn&&anyOn;}} onChange={e=>toggleAll(g.items,e.target.checked)} style={{width:15,height:15,cursor:"pointer"}}/>
+                        <span style={{fontSize:12,fontWeight:700,color:C.text2,fontFamily:"'Sora',sans-serif"}}>{g.label} ({g.items.length})</span>
+                      </div>
+                      {g.items.map(t=>{
+                        const cat=allCatsLocal.find(c=>c.id===t.category)||allCatsLocal[allCatsLocal.length-1];
+                        return (
+                          <label key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,marginBottom:3,background:selected.has(t.id)?C.surface:C.surface2+'88',cursor:"pointer",border:`1px solid ${selected.has(t.id)?C.border:"transparent"}`}}>
+                            <input type="checkbox" checked={selected.has(t.id)} onChange={()=>toggle(t.id)} style={{width:15,height:15,cursor:"pointer",flexShrink:0}}/>
+                            <div style={{width:28,height:28,borderRadius:7,background:cat.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{cat.icon}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.merchant}</div>
+                              <div style={{fontSize:10,color:C.text3}}>{t.date} · {cat.label}</div>
+                            </div>
+                            <div style={{fontSize:12,fontWeight:700,color:t.type==='income'?C.green:C.text,flexShrink:0}}>{t.type==='income'?'+':''}{fmt(t.amount)}</div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`,display:"flex",gap:10,flexShrink:0}}>
+                <button onClick={()=>setPendingImport(null)} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px",fontSize:13,color:C.text2,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+                <button onClick={async()=>{
+                  const toSave = allTxs.filter(t=>selected.has(t.id));
+                  setPendingImport(null);
+                  setLoading(true);
+                  await saveImportedTxs(toSave);
+                  setLoading(false);
+                }} style={{flex:2,background:C.terra,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
+                  Import {selected.size} Transaction{selected.size!==1?'s':''}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {undoToast && (
         <div style={{position:"fixed",bottom:mobile?80:24,left:"50%",transform:"translateX(-50%)",zIndex:3000,background:"#1A1714",color:"#fff",borderRadius:12,padding:"12px 20px",display:"flex",alignItems:"center",gap:16,boxShadow:"0 8px 32px rgba(0,0,0,0.3)",fontFamily:"'DM Sans',sans-serif",minWidth:260,maxWidth:"90vw"}}>
           <span style={{fontSize:13,flex:1}}>{undoToast.message}</span>
@@ -1388,7 +1473,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.48</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.49</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
