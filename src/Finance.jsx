@@ -672,6 +672,10 @@ export default function Finance({onBack}) {
     if (s.frequency === 'weekly') return sum + (s.amount * 52 / 12);
     return sum + s.amount;
   }, 0);
+  // Auto-detected income transactions from uploaded statements
+  const detectedIncomeTxs = txs.filter(t => t.type === 'income' || (t.amount > 0 && /credit/i.test(t.merchant)));
+  const detectedIncomeTotal = detectedIncomeTxs.reduce((s, t) => s + t.amount, 0);
+  const totalComputedIncome = computedIncome + detectedIncomeTotal;
   const cameraRef = useRef();
 
   // Simple paste zone component inline
@@ -1368,7 +1372,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.43</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.44</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -2079,7 +2083,7 @@ Rules:
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div>
                 <div style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:"'Sora',sans-serif"}}>Income for {MONTHS[selectedMonth]} {selectedYear}</div>
-                <div style={{fontSize:11,color:C.text3,marginTop:2}}>Total: <strong style={{color:C.green}}>{fmt(income)}</strong></div>
+                <div style={{fontSize:11,color:C.text3,marginTop:2}}>Total: <strong style={{color:C.green}}>{fmt(totalComputedIncome)}</strong></div>
               </div>
               <button onClick={async()=>{
                 const newSrc={description:"",amount:0,frequency:"monthly"};
@@ -2091,13 +2095,10 @@ Rules:
               </button>
             </div>
             {/* Detected income transactions */}
-            {(()=>{
-              const incomeTxList = txs.filter(t=>t.type==='income' || (t.amount>0 && /credit/i.test(t.merchant)));
-              if (!incomeTxList.length) return null;
-              return (
-                <div style={{marginBottom:14,padding:"10px 12px",background:C.green2,borderRadius:10,border:`1px solid ${C.green}33`}}>
+            {detectedIncomeTxs.length > 0 && (
+              <div style={{marginBottom:14,padding:"10px 12px",background:C.green2,borderRadius:10,border:`1px solid ${C.green}33`}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Auto-detected from statements</div>
-                  {incomeTxList.sort((a,b)=>b.amount-a.amount).map(t=>(
+                  {detectedIncomeTxs.sort((a,b)=>b.amount-a.amount).map(t=>(
                     <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",fontSize:12}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.merchant}</div>
@@ -2107,8 +2108,7 @@ Rules:
                     </div>
                   ))}
                 </div>
-              );
-            })()}
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 110px 90px 28px",gap:8,marginBottom:6}}>
               {["Description","Amount","Frequency",""].map(h=><div key={h} style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:.6}}>{h}</div>)}
             </div>
@@ -2164,9 +2164,9 @@ Rules:
             <div style={{fontSize:11,color:C.text3,marginBottom:8,fontStyle:"italic"}}>
               💡 Upload a bank statement — income deposits are detected automatically
             </div>
-            <button onClick={async()=>updateIncome(computedIncome)}
+            <button onClick={async()=>updateIncome(totalComputedIncome)}
               style={{width:"100%",marginTop:6,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif"}}>
-              Save — {fmt(computedIncome)}/mo
+              Save — {fmt(totalComputedIncome)}/mo
             </button>
           </div>
 
