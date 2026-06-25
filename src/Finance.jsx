@@ -680,6 +680,7 @@ export default function Finance({onBack}) {
   const [adminFamilies, setAdminFamilies] = useState([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [newFamily, setNewFamily] = useState({slug:'', name:'', owner_email:'', members:''});
+  const [showDisclaimer, setShowDisclaimer] = useState(()=>localStorage.getItem('disclaimerAccepted')!=='1');
   const [chartView, setChartView] = useState('grid'); // 'grid' | 'list'
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -1298,6 +1299,33 @@ Rules:
       `}</style>
 
       {showAddDebt && <AddDebtModal onAdd={addDebt} onClose={()=>setShowAddDebt(false)}/>}
+
+      {/* ── Disclaimer Modal ── */}
+      {showDisclaimer && (
+        <div style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.surface,borderRadius:20,padding:32,maxWidth:480,width:"100%",boxShadow:"0 16px 60px rgba(0,0,0,0.4)",fontFamily:"'DM Sans',sans-serif"}}>
+            <div style={{fontSize:22,fontWeight:800,color:C.text,fontFamily:"'Sora',sans-serif",marginBottom:4}}>Before you continue</div>
+            <div style={{fontSize:12,color:C.terra,fontWeight:700,marginBottom:20,textTransform:"uppercase",letterSpacing:.6}}>Terms of Use — Please read carefully</div>
+            <div style={{fontSize:13,color:C.text2,lineHeight:1.7,marginBottom:24}}>
+              <p style={{margin:"0 0 12px"}}>This is a <strong>personal finance tool</strong> provided for convenience by a private individual, not a registered financial institution or software company.</p>
+              <p style={{margin:"0 0 12px"}}>By using this app you agree that:</p>
+              <ul style={{margin:"0 0 12px",paddingLeft:20}}>
+                <li style={{marginBottom:6}}>This service is provided <strong>as-is, with no guarantees</strong> of availability, accuracy, or data security.</li>
+                <li style={{marginBottom:6}}>The operator is <strong>not liable</strong> for any data loss, data breach, or financial decisions made based on information shown in this app.</li>
+                <li style={{marginBottom:6}}>Your data is stored in a shared cloud database. While access controls are in place, <strong>no system is 100% secure</strong>.</li>
+                <li style={{marginBottom:6}}>This tool is for <strong>personal use only</strong> and should not be used as a substitute for professional financial advice.</li>
+                <li>The operator may discontinue this service at any time <strong>without notice</strong>.</li>
+              </ul>
+              <p style={{margin:0,color:C.text3,fontSize:12}}>By clicking "I Understand, Continue" you acknowledge that you have read and accept these terms.</p>
+            </div>
+            <button onClick={()=>{localStorage.setItem('disclaimerAccepted','1');setShowDisclaimer(false);}}
+              style={{width:"100%",background:C.terra,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Sora',sans-serif",marginBottom:10}}>
+              I Understand, Continue
+            </button>
+            <div style={{textAlign:"center",fontSize:11,color:C.text3}}>This notice will not appear again on this device.</div>
+          </div>
+        </div>
+      )}
       {debtPaymentMatches && <DebtPaymentModal matches={debtPaymentMatches} onConfirm={confirmDebtPayments} onClose={()=>setDebtPaymentMatches(null)}/>}
 
       {/* ── Import Review Modal ── */}
@@ -1554,7 +1582,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.0</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.1</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
