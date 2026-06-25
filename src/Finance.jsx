@@ -1524,7 +1524,7 @@ Rules:
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:11,padding:"5px 12px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
                 <div>
-                  <h1 style={{margin:0,fontSize:18,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
+                  <h1 style={{margin:0,fontSize:18,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
                   <div style={{fontSize:11,color:C.text3}}>{MONTHS[selectedMonth]} {selectedYear}</div>
                 </div>
               </div>
