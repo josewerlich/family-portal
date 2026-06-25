@@ -35,6 +35,7 @@ const CATEGORIES = [
   {id:"medical",      label:"Medical",       color:"#C43A3A",bg:"#F5E6E6",icon:"🏥"},
   {id:"business",     label:"Business Trip", color:"#2E4057",bg:"#E8ECF0",icon:"💼"},
   {id:"entertainment", label:"Entertainment",  color:"#6A3D9A",bg:"#EEE6F8",icon:"🎬"},
+  {id:"cc_payment",   label:"CC Payment",    color:"#8A2C2C",bg:"#F5E6E6",icon:"💳"},
   {id:"other",        label:"Other",         color:"#6B6560",bg:"#F0EDE8",icon:"📌"},
 ];
 
@@ -91,7 +92,7 @@ async function apiFetch(path, opts={}) {
 
 // ── CSV PARSERS ───────────────────────────────────────────────────────────────
 // Detect credit card payments — these should NOT be expenses, they're debt payments
-const CC_PAYMENT_PATTERNS = /CHASE CREDIT CRD|CARDMEMBER SERV|BEST BUY|APPLE.{0,10}CARD|APPLECARD|US BANK|USBANK|ACH DEBIT PAYPAL/i; // Mortgage and Watercress kept as expenses
+const CC_PAYMENT_PATTERNS = /CHASE CREDIT CRD|CARDMEMBER SERV|BEST BUY.*PAYMENT|BEST BUY PYMT|APPLE.{0,10}CARD|APPLECARD|AMAZON.*CARD|SYNCHRONY|US BANK|USBANK|U\.S\. BANK|ACH DEBIT PAYPAL|CITI.*CARD|DISCOVER.*PAYMENT|BARCLAYS|CAPITAL ONE.*PYMT/i;
 
 function isCreditCardPayment(desc) {
   return CC_PAYMENT_PATTERNS.test(desc.toUpperCase());
@@ -733,7 +734,7 @@ export default function Finance({onBack}) {
       apiFetch(`/api/transactions?month=${curYear}-${mm}`),
       apiFetch(`/api/transactions?month=${curYear - 1}-${mm}`),
     ]);
-    const calcSpend = arr => (Array.isArray(arr)?arr:[]).filter(t=>t.amount>0&&!/credit/i.test(t.merchant)&&t.category!=='income').reduce((s,t)=>s+t.amount,0);
+    const calcSpend = arr => (Array.isArray(arr)?arr:[]).filter(t=>t.amount>0&&!/credit/i.test(t.merchant)&&t.category!=='income'&&t.category!=='cc_payment'&&!isCreditCardPayment(t.merchant||'')).reduce((s,t)=>s+t.amount,0);
     setYoyData({cur:calcSpend(cur),prev:calcSpend(prev),month:MONTHS[selectedMonth],curYear,prevYear:curYear-1});
   };
 
@@ -875,7 +876,8 @@ export default function Finance({onBack}) {
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
   const allCats = [...CATEGORIES, ...customCategories.map(c=>({...c,id:c.id}))];
-  const expenses = txs.filter(t=>t.amount>0 && !/credit/i.test(t.merchant));
+  const ccPaymentTxs = txs.filter(t=>t.category==='cc_payment' || isCreditCardPayment(t.merchant||''));
+  const expenses = txs.filter(t=>t.amount>0 && !/credit/i.test(t.merchant) && t.category!=='cc_payment' && !isCreditCardPayment(t.merchant||''));
   const totalSpend = expenses.reduce((s,t)=>s+t.amount,0);
   const net = income - totalSpend;
   const byCat = {};
@@ -1031,10 +1033,13 @@ Rules: total = sum of all items. date format MM/DD. amounts are numbers (no $ si
       const expenseTxs = newTxs.filter(t => t.type !== 'income' && !isCreditCardPayment(t.merchant));
       l.push(`Found: ${expenseTxs.length} expenses, ${ccPayments.length} CC/loan payments, ${incomeTxs.length} income`); setLog([...l]);
 
+      // Tag CC payments with their own category so they're saved but excluded from expense totals
+      const ccPaymentTagged = ccPayments.map(t => ({...t, category:'cc_payment'}));
+
       // Group expenses by their actual month
       const byMonth = {};
       const incomeByMonth = {};
-      for (const tx of expenseTxs) {
+      for (const tx of [...expenseTxs, ...ccPaymentTagged]) {
         const [mm] = (tx.date || '01/01').split('/');
         const key = `${selectedYear}-${String(parseInt(mm)).padStart(2,'0')}`;
         if (!byMonth[key]) byMonth[key] = [];
@@ -1383,7 +1388,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>Family Finances</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.47</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v1.0.48</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -2000,6 +2005,28 @@ Rules:
               if(file&&txId) await uploadReceipt(txId,file);
               e.target.value='';
             }}/>
+          {/* ── Credit Card Payments section ── */}
+          {ccPaymentTxs.length > 0 && (
+            <div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid #C43A3A44`,overflow:"hidden",marginBottom:16}}>
+              <div style={{padding:"12px 20px",background:"#F5E6E611",borderBottom:`1px solid #C43A3A22`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#C43A3A",fontFamily:"'Sora',sans-serif"}}>💳 Credit Card Payments</div>
+                  <div style={{fontSize:11,color:C.text3,marginTop:1}}>Transfers to pay off your cards — not counted as expenses</div>
+                </div>
+                <div style={{fontSize:14,fontWeight:700,color:"#C43A3A"}}>{fmt(ccPaymentTxs.reduce((s,t)=>s+t.amount,0))}</div>
+              </div>
+              {ccPaymentTxs.sort((a,b)=>b.date.localeCompare(a.date)).map((tx,i)=>(
+                <div key={tx.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 20px",borderBottom:i<ccPaymentTxs.length-1?`1px solid ${C.border}`:"none",background:i%2===0?C.surface:"#FDF9F9"}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:"#F5E6E6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>💳</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tx.merchant}</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:1}}>{tx.date} · {tx.source}</div>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#C43A3A"}}>{fmt(tx.amount)}</div>
+                </div>
+              ))}
+            </div>
+          )}
           {expenses.length===0
             ?<div style={{background:C.surface,borderRadius:16,padding:40,textAlign:"center",color:C.text3,fontSize:14,fontFamily:"'DM Sans',sans-serif"}}>No transactions for this month.</div>
             :<div style={{background:C.surface,borderRadius:16,boxShadow:C.shadow,border:`1px solid ${C.border}`,overflow:"hidden"}}>
