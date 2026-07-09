@@ -206,7 +206,6 @@ const DEBT_MATCH_PATTERNS = {
   'US BANK': /US\s*BANK|USBANK/i,
   'ROCKET MORTGAGE': /ROCKET\s*MORTGAGE/i,
   'WATERCRESS': /WATERCRESS/i,
-  'ROOF': /WATERCRESS/i,
   'CAR': /AUTO\s*LOAN|VEHICLE\s*LOAN/i,  // Very strict, must say "auto loan"
 };
 
@@ -873,22 +872,8 @@ export default function Finance({onBack}) {
     } else {
       setReceiptItems({});
     }
-    // Auto-apply detected payments for this month
-    if (debts.length > 0 && txArr.length > 0) {
-      const matches = detectDebtPayments(txArr, debts);
-      const paidByDebt = {};
-      for (const m of matches) {
-        paidByDebt[m.debt.id] = (paidByDebt[m.debt.id] || 0) + m.tx.amount;
-      }
-      for (const [debtId, totalPaid] of Object.entries(paidByDebt)) {
-        const debt = debts.find(d => d.id === debtId);
-        if (!debt) continue;
-        const newBalance = Math.max(0, (debt.original_balance || debt.balance) - totalPaid);
-        if (Math.abs(newBalance - debt.balance) > 0.01) {
-          await updateDebt(debtId, {balance: newBalance});
-        }
-      }
-    }
+    // Note: debt balance updates happen only at import time or via Re-scan button
+    // to avoid balance drift when switching months.
   };
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
@@ -918,7 +903,7 @@ export default function Finance({onBack}) {
   const totalPaid = debts.reduce((s,d)=>s+((d.original_balance||d.balance)-d.balance),0);
   const totalOrig = debts.reduce((s,d)=>s+(d.original_balance||d.balance),0);
   const totalMin = debts.reduce((s,d)=>s+d.payment,0);
-  const availableForDebt = income - 3313 - 3796 - 1500;
+  const availableForDebt = Math.max(0, income - totalSpend);
 
   // ── DEBT ACTIONS ──────────────────────────────────────────────────────────
   const addDebt = async (debtData) => {
@@ -1582,7 +1567,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.1</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.2</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
@@ -1989,8 +1974,10 @@ Rules:
             </div>
             :<div style={{display:"flex",flexDirection:"column",gap:12}}>
               {debts.map(d=>{
+                // Only match against CC payment transactions to avoid false positives from expenses
                 const monthPayments = txs.filter(t => {
                   if (t.amount <= 0) return false;
+                  if (t.category !== 'cc_payment' && !isCreditCardPayment(t.merchant||'') && t.type !== 'expense') return false;
                   const desc = t.merchant.toUpperCase();
                   if (d.account_pattern && d.account_pattern.trim()) return desc.includes(d.account_pattern.trim().toUpperCase());
                   for (const [key, pattern] of Object.entries(DEBT_MATCH_PATTERNS)) {
