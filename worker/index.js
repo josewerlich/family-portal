@@ -476,5 +476,5 @@ async function handleRequest(request, env) {
 
     return err('Not found', 404);
 }
-// deployed Mon Jun 16 2026
-// v1.0.51 - multi-family isolation with family_id scoping
+// deployed Thu Jul 09 2026
+// v1.0.52 - HMAC-signed identity verification (fixes spoofable X-User-Email)
