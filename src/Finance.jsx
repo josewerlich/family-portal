@@ -60,27 +60,30 @@ function monthsUntil(ds){if(!ds)return null;const t=new Date(ds),n=new Date();re
 function useIsMobile(){const[m,setM]=useState(window.innerWidth<768);useEffect(()=>{const h=()=>setM(window.innerWidth<768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);return m;}
 
 // ── API HELPERS ───────────────────────────────────────────────────────────────
-// Cloudflare Access identity — cached after first call
-let _cfUserEmail = null;
-async function getCFUserEmail() {
-  if (_cfUserEmail) return _cfUserEmail;
+// Identity: /api/whoami runs on the Pages app (which Cloudflare Access
+// fronts) and mints a short-lived signed token for the verified user. We
+// send that token to the worker instead of a raw, forgeable email string.
+let _identity = null; // { email, token, expiry }
+async function getIdentity() {
+  if (_identity && Date.now() < _identity.expiry - 30000) return _identity;
   try {
-    const res = await fetch('/cdn-cgi/access/get-identity', {credentials:'include'});
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.email) { _cfUserEmail = data.email; return _cfUserEmail; }
-    }
-  } catch(_) {}
-  return null;
+    const res = await fetch('/api/whoami', {credentials:'include'});
+    if (!res.ok) { _identity = null; return null; }
+    const data = await res.json();
+    if (!data?.token) { _identity = null; return null; }
+    const expiry = Number(data.token.split(':')[1]) || (Date.now() + 4*60*1000);
+    _identity = { email: data.email, token: data.token, expiry };
+    return _identity;
+  } catch(_) { return null; }
 }
 
 async function apiFetch(path, opts={}) {
   try {
-    const cfEmail = await getCFUserEmail();
+    const identity = await getIdentity();
     const res = await fetch(`${API}${path}`, {
       headers: {
         'Content-Type': 'application/json',
-        ...(cfEmail ? {'X-User-Email': cfEmail} : {}),
+        ...(identity ? {'X-Identity-Token': identity.token} : {}),
         ...opts.headers,
       },
       ...opts,
@@ -788,17 +791,10 @@ export default function Finance({onBack}) {
     // Load family branding
     const familyInfo = await apiFetch('/api/families/current');
     if (familyInfo?.name) setFamilyName(familyInfo.name);
-    // Get CF Access identity first — this works on the same Pages domain
-    const cfEmail = await getCFUserEmail();
     const meData = await apiFetch('/api/me');
     if (meData?.error === 'Unauthorized' || meData?.status === 401) {
-      // If CF gave us an email but API says 401, it's a CORS/config issue — still let them in
-      if (cfEmail) {
-        setCurrentUser({email: cfEmail, display_name: '', household_id: null});
-      } else {
-        setAuthError(true);
-        return;
-      }
+      setAuthError(true);
+      return;
     } else if (meData?.email) {
       setCurrentUser(meData);
     }

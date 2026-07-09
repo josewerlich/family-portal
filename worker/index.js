@@ -18,22 +18,63 @@ function getFamilyId(request) {
   return 'werlich'; // root domain = main family
 }
 
-function getUser(request) {
-  // Cloudflare Access sets this header after authentication
-  const cfEmail = request.headers.get('CF-Access-Authenticated-User-Email');
-  if (cfEmail) return cfEmail;
-  
-  // Fallback: check Cf-Access-Jwt-Assertion and decode email from JWT
-  const jwt = request.headers.get('Cf-Access-Jwt-Assertion');
-  if (jwt) {
-    try {
-      const payload = JSON.parse(atob(jwt.split('.')[1]));
-      if (payload.email) return payload.email;
-    } catch(e) {}
+// ── IDENTITY VERIFICATION ────────────────────────────────────────────────
+// The browser never talks to this worker's origin with a verified
+// Cloudflare Access session (no cookies are forwarded cross-origin), so we
+// can't trust any Access header sent straight to us — it would just be
+// whatever the caller typed in. Instead, the Pages app (which Access does
+// front) mints a short-lived HMAC-signed token after checking Access
+// itself, and we verify that signature here. No valid signature = no user,
+// full stop.
+
+function base64UrlToBytes(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function verifyIdentityToken(token, secret) {
+  if (!token || !secret) return null;
+  const parts = token.split(':');
+  if (parts.length !== 3) return null;
+  const [email, expiryStr, sig] = parts;
+  const expiry = Number(expiryStr);
+  if (!email || !expiry || !sig) return null;
+  if (Date.now() > expiry) return null; // expired token
+
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const sigBytes = base64UrlToBytes(sig);
+    const payload = new TextEncoder().encode(`${email}:${expiry}`);
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, payload);
+    return valid ? email : null;
+  } catch (e) {
+    return null;
   }
-  
-  // Dev fallback
-  return request.headers.get('X-User-Email') || null;
+}
+
+async function getUser(request, env) {
+  const token = request.headers.get('X-Identity-Token');
+  if (token && env.IDENTITY_SIGNING_SECRET) {
+    const email = await verifyIdentityToken(token, env.IDENTITY_SIGNING_SECRET);
+    if (email) return email;
+  }
+  // Local-dev-only fallback. Must never be enabled in the production
+  // environment — set ALLOW_DEV_AUTH as a wrangler var only in a dev
+  // environment config, never as a production secret/var.
+  if (env.ALLOW_DEV_AUTH === 'true') {
+    return request.headers.get('X-User-Email') || null;
+  }
+  return null;
 }
 
 async function initDB(db) {
@@ -90,7 +131,8 @@ export default {
     try {
       return await handleRequest(request, env);
     } catch(e) {
-      return new Response(JSON.stringify({error: e.message, stack: e.stack}), {
+      console.error('Unhandled error:', e.message, e.stack);
+      return new Response(JSON.stringify({error: 'Internal server error'}), {
         status: 500,
         headers: {
           'Content-Type': 'application/json',
@@ -120,11 +162,16 @@ async function handleRequest(request, env) {
     const path = url.pathname;
     const method = request.method;
 
-    // ── AI PROXY — no auth required ──────────────────────────────────────────
+    // ── AI PROXY ──────────────────────────────────────────────────────────────
+    // Previously reachable with no authentication at all, which let anyone
+    // who found this URL spend our Anthropic API credits for free. Now
+    // requires the same verified identity as every other endpoint.
     if (path === '/api/ai/parse' && method === 'GET') {
       return json({status:'ok', message:'AI proxy ready'});
     }
     if (path === '/api/ai/parse' && method === 'POST') {
+      const aiUser = await getUser(request, env);
+      if (!aiUser) return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:CORS});
       try {
         const body = await request.json();
         const anthropicKey = env.ANTHROPIC_API_KEY;
@@ -153,7 +200,7 @@ async function handleRequest(request, env) {
     // ── All other routes require auth ─────────────────────────────────────────
     try { await initDB(env.DB); } catch(e) {}
 
-    const user = getUser(request);
+    const user = await getUser(request, env);
     if (!user) return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:CORS});
     await ensureUser(env.DB, user);
 
