@@ -1184,7 +1184,7 @@ Rules:
 - For groceries from stores like Costco/Walmart/Meijer, identify what each item actually is (produce, meat, household, etc.) and pick the best category
 - Keep item names short (2-4 words max)`;
        const identity = await getIdentity();
-      const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
+      const res = await fetch("/api/ai/parse", {
         method:"POST", headers:{"Content-Type":"application/json", ...(identity ? {'X-Identity-Token': identity.token} : {})},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:sys,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Parse all purchased line items from this receipt."}]}]})
       });
