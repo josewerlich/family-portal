@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ImageInput from "./ImageInput.jsx";
 
-const API = "https://api.familyfinances.uk";
+const API = "";
 
 function getFamilySlug() {
   const parts = window.location.hostname.split('.');
@@ -275,7 +275,7 @@ Rules:
   // Call via Worker proxy to avoid CORS issues. The proxy now requires a
   // verified identity token (same as every other endpoint), so attach it.
   const identity = await getIdentity();
-  const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
+  const res = await fetch("/api/ai/parse", {
     method:"POST",
     headers:{
       "Content-Type":"application/json",
@@ -1569,7 +1569,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.4</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.5</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
