@@ -272,10 +272,15 @@ Rules:
     ? [{type:"image",source:{type:"base64",media_type:mediaType,data:fileData}},{type:"text",text:userMsg}]
     : [{type:"document",source:{type:"base64",media_type:"application/pdf",data:fileData}},{type:"text",text:userMsg}];
 
-  // Call via Worker proxy to avoid CORS issues
+  // Call via Worker proxy to avoid CORS issues. The proxy now requires a
+  // verified identity token (same as every other endpoint), so attach it.
+  const identity = await getIdentity();
   const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{
+      "Content-Type":"application/json",
+      ...(identity ? {'X-Identity-Token': identity.token} : {}),
+    },
     body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:sys,messages:[{role:"user",content:msgContent}]})
   });
 
@@ -1178,8 +1183,9 @@ Rules:
 - Skip subtotals, tax, tips, and totals
 - For groceries from stores like Costco/Walmart/Meijer, identify what each item actually is (produce, meat, household, etc.) and pick the best category
 - Keep item names short (2-4 words max)`;
+       const identity = await getIdentity();
       const res = await fetch("https://api.familyfinances.uk/api/ai/parse", {
-        method:"POST", headers:{"Content-Type":"application/json"},
+        method:"POST", headers:{"Content-Type":"application/json", ...(identity ? {'X-Identity-Token': identity.token} : {})},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:2000,system:sys,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mediaType,data:base64}},{type:"text",text:"Parse all purchased line items from this receipt."}]}]})
       });
       const data = await res.json();
@@ -1563,7 +1569,7 @@ Rules:
               <button onClick={onBack} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:99,color:C.text2,cursor:"pointer",fontSize:12,padding:"6px 14px",fontFamily:"'DM Sans',sans-serif"}}>← Home</button>
               <div>
                 <h1 style={{margin:0,fontSize:24,fontWeight:700,fontFamily:"'Sora',sans-serif",color:C.text}}>{familyName}</h1>
-                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.3</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:2}}>{currentUser?.display_name||currentUser?.email||'Family'} · {MONTHS[selectedMonth]} {selectedYear} · <span style={{color:C.terra}}>v2.0.4</span></div>
               </div>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface2,borderRadius:12,padding:"8px 14px",border:`1px solid ${C.border}`}}>
