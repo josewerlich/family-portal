@@ -1,5 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 
+const svgIcon = s => 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100"><g fill="none" stroke="#3df0c8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">${s}</g></svg>`
+);
+
+const ICON = {
+  bike: svgIcon(`<circle cx="45" cy="58" r="28"/><circle cx="45" cy="58" r="3" fill="#3df0c8"/><path d="M45 58 L60 70 M45 58 L72 22 M64 22 L80 22 M45 58 L98 44 M98 44 L98 27 M91 27 L105 27"/>`),
+  punchingBag: svgIcon(`<path d="M60 4 L60 18 M52 8 L68 8"/><path d="M42 18 Q60 10 78 18 L72 92 Q60 106 48 92 Z"/><line x1="47" y1="42" x2="73" y2="42" stroke-width="2" opacity=".5"/><line x1="46" y1="64" x2="74" y2="64" stroke-width="2" opacity=".5"/>`),
+  cableRow: svgIcon(`<line x1="14" y1="6" x2="14" y2="94"/><path d="M14 12 L48 12"/><circle cx="48" cy="12" r="5" fill="#3df0c8"/><path d="M48 17 L48 56"/><path d="M33 56 L63 56"/><rect x="86" y="20" width="18" height="8"/><rect x="86" y="32" width="18" height="8"/><rect x="86" y="44" width="18" height="8"/>`),
+  legExtension: svgIcon(`<rect x="12" y="52" width="30" height="34" rx="3"/><circle cx="60" cy="50" r="5" fill="#3df0c8"/><path d="M60 50 L94 30"/><circle cx="94" cy="30" r="7"/><rect x="16" y="10" width="20" height="8"/><rect x="16" y="22" width="20" height="8"/><rect x="16" y="34" width="20" height="8"/>`),
+};
+
 const I = {
   'chest-press':     ['https://upload.wikimedia.org/wikipedia/commons/0/01/Bench_press_dumbbell_1.svg','https://upload.wikimedia.org/wikipedia/commons/b/b3/Bench_press_dumbbell_2.svg'],
   'dumbbell-row':    ['https://upload.wikimedia.org/wikipedia/commons/5/5e/Dumbbell_bent-over_row_1.svg','https://upload.wikimedia.org/wikipedia/commons/7/76/Dumbbell_bent-over_row_2.svg'],
@@ -13,13 +24,13 @@ const I = {
   'step-up':         ['https://upload.wikimedia.org/wikipedia/commons/7/78/Dumbbell_step_up_1.svg','https://upload.wikimedia.org/wikipedia/commons/4/4f/Dumbbell_step_up_2.svg'],
   'calf-raises':     ['https://upload.wikimedia.org/wikipedia/commons/5/58/Standing_dumbbell_calf_raise_1.svg','https://upload.wikimedia.org/wikipedia/commons/b/be/Standing_dumbbell_calf_raise_2.svg'],
   'rowing':          ['https://upload.wikimedia.org/wikipedia/commons/5/5e/Dumbbell_bent-over_row_1.svg',null],
-  'bike':            [null,null],
-  'punching-bag':    [null,null],
+  'bike':            [ICON.bike,null],
+  'punching-bag':    [ICON.punchingBag,null],
   'plank':           ['https://upload.wikimedia.org/wikipedia/commons/8/8a/Front_plank.svg',null],
   'leg-raises':      ['https://upload.wikimedia.org/wikipedia/commons/5/5e/Bent_knee_hip_raise_1.svg','https://upload.wikimedia.org/wikipedia/commons/5/54/Bent_knee_hip_raise_2.svg'],
   'crunches':        ['https://upload.wikimedia.org/wikipedia/commons/7/79/Crunch_1.svg','https://upload.wikimedia.org/wikipedia/commons/e/e3/Crunch_2.svg'],
-  'cable-row':       [null,null],
-  'leg-extension':   [null,null],
+  'cable-row':       [ICON.cableRow,null],
+  'leg-extension':   [ICON.legExtension,null],
 };
 
 const EX = {
